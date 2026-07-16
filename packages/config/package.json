@@ -1,0 +1,15 @@
+{
+  "name": "@outreach-engine/config",
+  "version": "0.0.0",
+  "private": true,
+  "main": "eslint.config.js",
+  "exports": {
+    "./eslint": "./eslint.config.js",
+    "./tsconfig.base.json": "./tsconfig.base.json"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.15.0",
+    "@typescript-eslint/parser": "^8.15.0",
+    "eslint": "^9.15.0"
+  }
+}

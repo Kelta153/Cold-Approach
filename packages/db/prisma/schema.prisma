@@ -1,0 +1,439 @@
+// Outreach Engine — Prisma schema (locked v1)
+// Every business-scoped entity carries businessLineId — no exceptions.
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ─────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────
+
+enum UserRole {
+  admin
+  operator
+}
+
+enum LeadStatus {
+  discovered
+  enriching
+  drafted
+  queued
+  sent
+  skipped
+  rejected
+  bounced
+  replied
+}
+
+enum LeadOutcome {
+  none
+  interested
+  not_interested
+  meeting_booked
+  customer
+  unsubscribed
+}
+
+enum LeadChannel {
+  email
+  instagram_dm
+}
+
+enum EmailStatus {
+  unverified
+  valid
+  invalid
+  not_found
+}
+
+enum ContactMethod {
+  email
+  website_form
+}
+
+enum BusinessSource {
+  google_places
+  instagram
+}
+
+enum TemplateType {
+  email_outbound
+  email_reply
+  instagram_dm
+}
+
+enum SendStatus {
+  sent
+  bounced
+  failed
+}
+
+enum ReplyClassification {
+  interested
+  question
+  not_interested
+  opt_out
+  auto_reply
+  complaint
+  other
+}
+
+enum SuppressionReason {
+  unsubscribed
+  bounced_hard
+  manual_reject
+  complaint
+}
+
+enum BatchChannel {
+  email
+  instagram
+}
+
+// ─────────────────────────────────────────────────────────
+// CORE: BUSINESS LINE (the replicability backbone)
+// ─────────────────────────────────────────────────────────
+
+model BusinessLine {
+  id                 String   @id @default(uuid())
+  name               String
+  senderName         String   @map("sender_name")
+  companyLegalName   String   @map("company_legal_name")
+  postalAddress      String?  @map("postal_address") // nullable at schema level; compliance chokepoint blocks sends until populated — NOT a bypass
+  sendingDomain      String   @map("sending_domain")
+  sendingInboxes     Json     @map("sending_inboxes") // list of {email, dailyCap, active}
+  privacyPolicyUrl   String?  @map("privacy_policy_url")
+  channelsEnabled    Json     @map("channels_enabled") // {email: bool, instagram: bool}
+  sendLimits         Json     @map("send_limits")      // {perInboxPerDay, igPerDay, rampSchedule}
+  warmupComplete     Boolean  @default(false) @map("warmup_complete")
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  products           Product[]
+  templates          Template[]
+  targetingProfiles   TargetingProfile[]
+  businesses          Business[]
+  leads               Lead[]
+  suppressionEntries  SuppressionEntry[]
+  batches             Batch[]
+
+  @@map("business_lines")
+}
+
+// ─────────────────────────────────────────────────────────
+// CATALOGUE
+// ─────────────────────────────────────────────────────────
+
+model Product {
+  id                  String   @id @default(uuid())
+  businessLineId      String   @map("business_line_id")
+  businessLine        BusinessLine @relation(fields: [businessLineId], references: [id])
+  name                String
+  description         String
+  keyFeatures         String[] @map("key_features")
+  targetBusinessTypes String[] @map("target_business_types")
+  link                String   // Shopify store link — cold copy must never include price (D-D4)
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  variants            ProductVariant[]
+  leads               Lead[]
+  batches             Batch[]
+
+  @@index([businessLineId])
+  @@map("products")
+}
+
+model ProductVariant {
+  id          String  @id @default(uuid())
+  productId   String  @map("product_id")
+  product     Product @relation(fields: [productId], references: [id])
+  variantName String  @map("variant_name")
+  price       Decimal // wholesale price — reply-stage asset only, never in cold copy
+  moq         Int
+  attributes  Json
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+// ─────────────────────────────────────────────────────────
+// TEMPLATES & TARGETING
+// ─────────────────────────────────────────────────────────
+
+model Template {
+  id              String       @id @default(uuid())
+  businessLineId  String       @map("business_line_id")
+  businessLine    BusinessLine @relation(fields: [businessLineId], references: [id])
+  type            TemplateType
+  subjectSkeleton String?      @map("subject_skeleton") // email only
+  bodySkeleton    String       @map("body_skeleton")
+  active          Boolean      @default(true)
+  createdAt       DateTime     @default(now()) @map("created_at")
+
+  @@index([businessLineId])
+  @@map("templates")
+}
+
+model TargetingProfile {
+  id               String       @id @default(uuid())
+  businessLineId   String       @map("business_line_id")
+  businessLine     BusinessLine @relation(fields: [businessLineId], references: [id])
+  name             String
+  googlePlaceTypes String[]     @map("google_place_types")
+  keywords         String[]
+  exclusions       String[]     // e.g. chains/franchises
+  active           Boolean      @default(true)
+
+  batches          Batch[]
+
+  @@index([businessLineId])
+  @@map("targeting_profiles")
+}
+
+// ─────────────────────────────────────────────────────────
+// BUSINESSES & LEADS
+// ─────────────────────────────────────────────────────────
+
+model Business {
+  id                 String         @id @default(uuid())
+  businessLineId     String         @map("business_line_id")
+  businessLine       BusinessLine   @relation(fields: [businessLineId], references: [id])
+  googlePlaceId      String?        @unique @map("google_place_id")
+  name               String
+  category           String?
+  address            String?
+  phone              String?
+  website            String?
+  rating             Float?
+  reviewCount        Int?           @map("review_count")
+  source             BusinessSource
+  discoveredAt       DateTime       @default(now()) @map("discovered_at")
+
+  // Instagram fields
+  instagramHandle    String?        @map("instagram_handle")
+  instagramFollowers Int?           @map("instagram_followers")
+  instagramBio       String?        @map("instagram_bio")
+  instagramWebsite   String?        @map("instagram_website")
+
+  leads              Lead[]
+
+  @@index([businessLineId])
+  @@map("businesses")
+}
+
+model Lead {
+  id                 String        @id @default(uuid())
+  businessLineId     String        @map("business_line_id")
+  businessLine       BusinessLine  @relation(fields: [businessLineId], references: [id])
+  businessId         String        @map("business_id")
+  business           Business      @relation(fields: [businessId], references: [id])
+  productId          String        @map("product_id")
+  product            Product       @relation(fields: [productId], references: [id])
+
+  email              String?
+  emailStatus        EmailStatus   @default(unverified) @map("email_status")
+  contactFirstName   String?       @map("contact_first_name")
+  contactMethod      ContactMethod? @map("contact_method")
+
+  channel            LeadChannel   @default(email)
+  status             LeadStatus    @default(discovered)
+  outcome            LeadOutcome   @default(none)
+
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  drafts             Draft[]
+  dmDrafts           DmDraft[]
+  sends              Send[]
+  dmSends            DmSend[]
+  replies            Reply[]
+
+  @@index([businessLineId])
+  @@index([businessId])
+  @@map("leads")
+}
+
+// ─────────────────────────────────────────────────────────
+// DRAFTS (email + Instagram DM)
+// ─────────────────────────────────────────────────────────
+
+model Draft {
+  id                    String   @id @default(uuid())
+  leadId                String   @map("lead_id")
+  lead                  Lead     @relation(fields: [leadId], references: [id])
+  subject               String
+  body                  String   // includes compliant footer
+  groundingFacts        Json     @map("grounding_facts") // audit: exact facts given to the model
+  openPlaceholders      String[] @map("open_placeholders")
+  model                 String   // e.g. "claude-haiku-4-5"
+  version               Int      @default(1)
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  sends                 Send[]
+
+  @@index([leadId])
+  @@map("drafts")
+}
+
+model DmDraft {
+  id                String   @id @default(uuid())
+  leadId            String   @map("lead_id")
+  lead              Lead     @relation(fields: [leadId], references: [id])
+  body              String   // no email footer
+  groundingFacts    Json     @map("grounding_facts")
+  openPlaceholders  String[] @map("open_placeholders")
+  model             String
+  version           Int      @default(1)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  dmSends           DmSend[]
+
+  @@index([leadId])
+  @@map("dm_drafts")
+}
+
+// ─────────────────────────────────────────────────────────
+// SENDS (the only tables the compliance chokepoint writes to)
+// ─────────────────────────────────────────────────────────
+
+model Send {
+  id                String     @id @default(uuid())
+  leadId            String     @map("lead_id")
+  lead              Lead       @relation(fields: [leadId], references: [id])
+  draftId           String     @map("draft_id")
+  draft             Draft      @relation(fields: [draftId], references: [id])
+  sentAt            DateTime   @default(now()) @map("sent_at")
+  sendingInbox      String     @map("sending_inbox")
+  providerMessageId String?    @map("provider_message_id")
+  status            SendStatus
+  approvedByUserId  String     @map("approved_by_user_id") // audit: who pressed send — webapp or Telegram user
+  approvedVia       String     @map("approved_via")        // "webapp" | "telegram"
+
+  replies           Reply[]
+
+  @@index([leadId])
+  @@map("sends")
+}
+
+model DmSend {
+  id               String   @id @default(uuid())
+  leadId           String   @map("lead_id")
+  lead             Lead     @relation(fields: [leadId], references: [id])
+  dmDraftId        String   @map("dm_draft_id")
+  dmDraft          DmDraft  @relation(fields: [dmDraftId], references: [id])
+  markedSentAt     DateTime @default(now()) @map("marked_sent_at")
+  sendingAccount   String   @map("sending_account")
+  operatorId       String   @map("operator_id") // operator-confirmed manual log — no platform receipt
+
+  @@index([leadId])
+  @@map("dm_sends")
+}
+
+// ─────────────────────────────────────────────────────────
+// REPLIES
+// ─────────────────────────────────────────────────────────
+
+model Reply {
+  id                     String              @id @default(uuid())
+  leadId                 String?             @map("lead_id")
+  lead                   Lead?               @relation(fields: [leadId], references: [id])
+  sendId                 String?             @map("send_id")
+  send                   Send?               @relation(fields: [sendId], references: [id])
+  receivedAt             DateTime            @default(now()) @map("received_at")
+  fromEmail              String              @map("from_email")
+  body                   String
+  providerThreadId       String?             @map("provider_thread_id")
+  classification         ReplyClassification
+  classificationConfidence Float             @map("classification_confidence")
+  handled                Boolean             @default(false)
+  handledBy              String?             @map("handled_by")
+  handledAt              DateTime?           @map("handled_at")
+
+  replyDrafts            ReplyDraft[]
+
+  @@index([leadId])
+  @@map("replies")
+}
+
+model ReplyDraft {
+  id               String   @id @default(uuid())
+  replyId          String   @map("reply_id")
+  reply            Reply    @relation(fields: [replyId], references: [id])
+  body             String
+  groundingFacts   Json     @map("grounding_facts")
+  openPlaceholders String[] @map("open_placeholders")
+  model            String
+  version          Int      @default(1)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([replyId])
+  @@map("reply_drafts")
+}
+
+// ─────────────────────────────────────────────────────────
+// SUPPRESSION (checked at dedupe + before every send — no exceptions)
+// ─────────────────────────────────────────────────────────
+
+model SuppressionEntry {
+  id              String            @id @default(uuid())
+  businessLineId  String            @map("business_line_id")
+  businessLine    BusinessLine      @relation(fields: [businessLineId], references: [id])
+  email           String?
+  domain          String?
+  googlePlaceId   String?           @map("google_place_id")
+  instagramHandle String?           @map("instagram_handle")
+  reason          SuppressionReason
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  @@index([businessLineId])
+  @@index([email])
+  @@index([domain])
+  @@index([googlePlaceId])
+  @@index([instagramHandle])
+  @@map("suppression_list")
+}
+
+// ─────────────────────────────────────────────────────────
+// BATCHES
+// ─────────────────────────────────────────────────────────
+
+model Batch {
+  id              String           @id @default(uuid())
+  businessLineId  String           @map("business_line_id")
+  businessLine    BusinessLine     @relation(fields: [businessLineId], references: [id])
+  profileId       String           @map("profile_id")
+  profile         TargetingProfile @relation(fields: [profileId], references: [id])
+  productId       String           @map("product_id")
+  product         Product          @relation(fields: [productId], references: [id])
+  geography       String
+  channel         BatchChannel
+  sizeRequested   Int              @map("size_requested")
+  stats           Json             // funnel counts + API spend
+  runBy           String           @map("run_by")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  @@index([businessLineId])
+  @@map("batches")
+}
+
+// ─────────────────────────────────────────────────────────
+// USERS
+// ─────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  role         UserRole
+  telegramUserId String? @unique @map("telegram_user_id") // links Telegram approvals to an audited identity
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("users")
+}

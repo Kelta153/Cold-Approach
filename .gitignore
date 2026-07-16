@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Turbo
+.turbo/
+
+# Prisma
+packages/db/generated/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Claude Code local state (worktrees, scheduled-task locks, session data) — never part of the
+# shipped project, and machine/session-specific.
+.claude/
+.claude-worktrees/
+*.worktree/
+CLAUDE.md
+
+# Planning/handoff source material — informed the build, not part of the shipped project.
+claude-code-setup-prompt.md
+Design review request.zip
+
+# Tests / coverage
+coverage/

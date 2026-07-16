@@ -1,0 +1,165 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+[data-theme='dark'] {
+  --oe-bg: #0b0c10;
+  --oe-surface: #101218;
+  --oe-surface-2: #0d0f14;
+  --oe-raised: #14161d;
+  --oe-raised-2: #161922;
+  --oe-border: #1a1d26;
+  --oe-border-2: #1e212b;
+  --oe-border-3: #262a35;
+  --oe-border-selected: #2e3548;
+  --oe-text: #e6e9f0;
+  --oe-text-secondary: #8a90a1;
+  --oe-text-muted: #5c6272;
+  --oe-body: #dfe3ec;
+  --oe-action: #3b6fe0;
+  --oe-action-hover: #4a7ce8;
+  --oe-link: #6ea8fe;
+  --oe-link-2: #8ab4ff;
+  --oe-green: #3fce8a;
+  --oe-amber: #e8a33d;
+  --oe-red: #f0637a;
+  --oe-ig: #c2508f;
+  --oe-ig-2: #e57ab8;
+  --oe-selection: rgba(110, 168, 254, 0.28);
+  --oe-label: #aab0bf;
+  --oe-amber-soft: #e8c48a;
+  --oe-border-hover: #333846;
+  --oe-selected-bg: #151926;
+  --oe-selected-bg-ig: #191420;
+  --oe-reply-inbound-bg: #111420;
+  --oe-reply-inbound-border: #2a3040;
+  --oe-dm-bubble-bg: #17121a;
+  --oe-dm-bubble-border: rgba(229, 122, 184, 0.28);
+  --oe-dm-avatar-bg: #1b1520;
+  --oe-segment-active-bg: #1e2536;
+}
+
+[data-theme='light'] {
+  --oe-bg: #f7f8fa;
+  --oe-surface: #ffffff;
+  --oe-surface-2: #f2f3f6;
+  --oe-raised: #ffffff;
+  --oe-raised-2: #eef0f4;
+  --oe-border: #e6e8ec;
+  --oe-border-2: #dde1e8;
+  --oe-border-3: #cdd2dc;
+  --oe-border-selected: #aab8db;
+  --oe-text: #12141c;
+  --oe-text-secondary: #565c6b;
+  --oe-text-muted: #83899a;
+  --oe-body: #23262f;
+  --oe-action: #3b6fe0;
+  --oe-action-hover: #2f5cc0;
+  --oe-link: #2f5cc0;
+  --oe-link-2: #1d4ed8;
+  --oe-green: #1f9d63;
+  --oe-amber: #a3690a;
+  --oe-red: #c62e4d;
+  --oe-ig: #a83d78;
+  --oe-ig-2: #8a2f61;
+  --oe-selection: rgba(47, 92, 192, 0.18);
+  --oe-label: #4a5063;
+  --oe-amber-soft: #8a5a12;
+  --oe-border-hover: #c3c8d1;
+  --oe-selected-bg: #e7ecf7;
+  --oe-selected-bg-ig: #fbeaf3;
+  --oe-reply-inbound-bg: #eef2fb;
+  --oe-reply-inbound-border: #c7d3f0;
+  --oe-dm-bubble-bg: #fdf1f8;
+  --oe-dm-bubble-border: rgba(168, 61, 120, 0.35);
+  --oe-dm-avatar-bg: #fbe4ef;
+  --oe-segment-active-bg: #dbe4fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: var(--oe-bg);
+  color: var(--oe-text);
+}
+
+body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--oe-link-2);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--oe-link);
+  text-decoration: underline;
+}
+
+input,
+textarea,
+button,
+select {
+  font-family: inherit;
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--oe-action) !important;
+}
+
+::selection {
+  background: var(--oe-selection);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--oe-border-3);
+  border-radius: 5px;
+  border: 2px solid var(--oe-bg);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes oe-shimmer {
+  0% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.65;
+  }
+  100% {
+    opacity: 0.3;
+  }
+}
+
+@keyframes oe-toast-in {
+  from {
+    transform: translate(-50%, 10px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+.oe-shimmer {
+  animation: oe-shimmer 1.4s ease-in-out infinite;
+}
+
+.oe-toast {
+  animation: oe-toast-in 0.18s ease;
+}
