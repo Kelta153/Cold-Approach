@@ -41,6 +41,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Explicit, not relying on @prisma/client's postinstall auto-generate — that step reads
+      # "still succeeds" even when it silently fails to find/read the schema (seen firsthand
+      # locally), leaving a stale or absent client. apps/api's build depends on the real
+      # generated types (BusinessLineCreateInput etc.), so this must run before lint/build.
+      - name: Generate Prisma Client
+        run: pnpm --filter @outreach-engine/db db:generate
+
       - name: Lint
         run: pnpm turbo lint
 
