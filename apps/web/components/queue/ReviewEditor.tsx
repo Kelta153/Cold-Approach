@@ -32,7 +32,7 @@ export function ReviewEditor({
   const subject = draft?.subject ?? item.subject;
   const body = draft?.body ?? item.body;
   const edited = !!draft;
-  const badgeSpec = decision ? doneBadge(decision.status as DoneStatus, decision.approvedVia) : complianceBadge(item.blockedReasons);
+  const badgeSpec = decision ? doneBadge(decision.status as DoneStatus, decision.approvedVia, decision.simulated) : complianceBadge(item.blockedReasons);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

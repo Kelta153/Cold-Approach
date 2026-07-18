@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
-import { QUEUE_NAMES } from './queues.module';
+import { QUEUE_NAMES } from './queue-names';
 
 /** Placeholder processor — logs and marks the job complete. Wiring this up to
  * `EnrichmentService.findEmail`/`verifyEmail` for real batch processing is a later phase. */

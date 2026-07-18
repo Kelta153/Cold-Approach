@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import type { Prisma } from '@outreach-engine/db';
 import { Roles } from '../../common/guards/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -10,8 +10,8 @@ import { ProductsService } from './products.service';
 @Roles('admin', 'operator')
 export class ProductsController {
   constructor(
-    private readonly productsService: ProductsService,
-    private readonly variantsService: ProductVariantsService,
+    @Inject(ProductsService) private readonly productsService: ProductsService,
+    @Inject(ProductVariantsService) private readonly variantsService: ProductVariantsService,
   ) {}
 
   @Get()

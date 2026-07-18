@@ -87,8 +87,8 @@ const emailStatus = (verified: boolean): EmailStatus => (verified ? 'valid' : 'u
  * approvedVia variants so the "sent via Telegram" badge treatment is exercised without a
  * live bot. */
 export const seededSendAudits: Record<string, SendAuditDto> = {
-  msg_7a1x4d: { approvedVia: 'telegram', approvedByUserId: 'usr_admin_1', sentAt: '2026-07-14T09:12:00Z' },
-  rep_8m1e: { approvedVia: 'telegram', approvedByUserId: 'usr_admin_1', sentAt: '2026-07-15T11:40:00Z' },
+  msg_7a1x4d: { approvedVia: 'telegram', approvedByUserId: 'usr_admin_1', sentAt: '2026-07-14T09:12:00Z', simulated: false },
+  rep_8m1e: { approvedVia: 'telegram', approvedByUserId: 'usr_admin_1', sentAt: '2026-07-15T11:40:00Z', simulated: false },
 };
 
 export const reviewItems: (ReviewQueueItemDto & { line: string })[] = [

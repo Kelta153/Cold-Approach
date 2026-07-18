@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import type { Prisma } from '@outreach-engine/db';
 import { Roles } from '../../common/guards/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -8,7 +8,7 @@ import { TargetingService } from './targeting.service';
 @UseGuards(RolesGuard)
 @Roles('admin', 'operator')
 export class TargetingController {
-  constructor(private readonly targetingService: TargetingService) {}
+  constructor(@Inject(TargetingService) private readonly targetingService: TargetingService) {}
 
   @Get()
   findAll() {

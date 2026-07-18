@@ -51,7 +51,7 @@ export function DmList({
               </div>
               {decision && (
                 <div className="mt-1">
-                  <Badge spec={doneBadge(decision.status, decision.approvedVia)} />
+                  <Badge spec={doneBadge(decision.status, decision.approvedVia, decision.simulated)} />
                 </div>
               )}
             </button>

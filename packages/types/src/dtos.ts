@@ -28,6 +28,10 @@ export interface SendAuditDto {
   approvedVia: ApprovedVia;
   approvedByUserId: string;
   sentAt: string;
+  /** True when no INSTANTLY_API_KEY was configured at send time — the Send row is real, but no
+   * email actually left a mailbox. Must stay visible to the operator, never silently equivalent
+   * to a real send. */
+  simulated: boolean;
 }
 
 export interface FactDto {

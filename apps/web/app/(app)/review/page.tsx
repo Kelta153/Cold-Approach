@@ -47,8 +47,8 @@ export default function ReviewPage() {
       if (key === 'enter') {
         if (selectedItem.blockedReasons.length === 0) decide('review', selectedItem.id, 'sent', 'webapp');
         else showToast('Blocked — sending is not allowed');
-      } else if (key === 's') decide('review', selectedItem.id, 'skipped');
-      else if (key === 'x') decide('review', selectedItem.id, 'rejected');
+      } else if (key === 's') decide('review', selectedItem.id, 'skipped', undefined, selectedItem.leadId);
+      else if (key === 'x') decide('review', selectedItem.id, 'rejected', undefined, selectedItem.leadId);
       else if (key === 'g') onRegen();
     },
   });
@@ -80,8 +80,8 @@ export default function ReviewPage() {
               onSubjectChange={(v) => setDraft(selectedItem.id, { subject: v, body: drafts[selectedItem.id]?.body ?? selectedItem.body })}
               onBodyChange={(v) => setDraft(selectedItem.id, { subject: drafts[selectedItem.id]?.subject ?? selectedItem.subject, body: v })}
               onSend={() => decide('review', selectedItem.id, 'sent', 'webapp')}
-              onSkip={() => decide('review', selectedItem.id, 'skipped')}
-              onReject={() => decide('review', selectedItem.id, 'rejected')}
+              onSkip={() => decide('review', selectedItem.id, 'skipped', undefined, selectedItem.leadId)}
+              onReject={() => decide('review', selectedItem.id, 'rejected', undefined, selectedItem.leadId)}
               onRegen={onRegen}
             />
           ) : (

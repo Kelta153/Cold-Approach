@@ -5,19 +5,24 @@ import { SendingService } from './sending.service';
 
 const findUniqueMock = vi.fn();
 const sendCreateMock = vi.fn();
+const leadUpdateMock = vi.fn();
 
 vi.mock('@outreach-engine/db', () => ({
   prisma: {
     draft: { findUnique: (...args: unknown[]) => findUniqueMock(...args) },
     send: { create: (...args: unknown[]) => sendCreateMock(...args) },
+    lead: { update: (...args: unknown[]) => leadUpdateMock(...args) },
   },
 }));
 
 const DRAFT = {
   id: 'draft_1',
   leadId: 'lead_1',
+  subject: 'Test subject',
+  body: 'Test body',
   lead: {
     businessLineId: 'line_1',
+    email: 'prospect@example.com',
     businessLine: {
       sendingInboxes: [{ email: 'kay@auroraskin.co', dailyCap: 40, active: true }],
     },
@@ -32,7 +37,9 @@ describe('SendingService.attemptSend', () => {
   beforeEach(() => {
     findUniqueMock.mockReset();
     sendCreateMock.mockReset();
+    leadUpdateMock.mockReset();
     findUniqueMock.mockResolvedValue(DRAFT);
+    delete process.env.INSTANTLY_API_KEY;
   });
 
   it('blocks the whole send when the compliance chokepoint reports a single failing check, and surfaces the reason', async () => {
@@ -80,6 +87,18 @@ describe('SendingService.attemptSend', () => {
         approvedByUserId: 'user_42',
         approvedVia: 'telegram',
       }),
+    });
+    expect(leadUpdateMock).toHaveBeenCalledWith({ where: { id: 'lead_1' }, data: { status: 'sent' } });
+  });
+
+  it('marks the Send row simulated when INSTANTLY_API_KEY is not configured', async () => {
+    const allowedResult: SendCheckResult = { allowed: true, blockedReasons: [] };
+    const sending = new SendingService(makeComplianceService(allowedResult));
+
+    await sending.attemptSend('draft_1', 'user_42', 'webapp');
+
+    expect(sendCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({ simulated: true, providerMessageId: null }),
     });
   });
 

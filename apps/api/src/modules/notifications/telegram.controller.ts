@@ -1,10 +1,10 @@
-import { Body, Controller, ForbiddenException, Headers, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Headers, HttpCode, Inject, Post } from '@nestjs/common';
 import type { TelegramUpdate } from './telegram.types';
 import { TelegramService } from './telegram.service';
 
 @Controller('telegram')
 export class TelegramController {
-  constructor(private readonly telegramService: TelegramService) {}
+  constructor(@Inject(TelegramService) private readonly telegramService: TelegramService) {}
 
   @Post('webhook')
   @HttpCode(200)

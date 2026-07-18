@@ -34,7 +34,7 @@ export function ReviewList({
         {!loading && pending.length > 0 &&
           items.map((it) => {
             const decision = isDecided('review', it.id);
-            const badgeSpec = decision ? doneBadge(decision.status, decision.approvedVia) : complianceBadge(it.blockedReasons);
+            const badgeSpec = decision ? doneBadge(decision.status, decision.approvedVia, decision.simulated) : complianceBadge(it.blockedReasons);
             return (
               <button key={it.id} onClick={() => onSelect(it.id)} style={listRowStyle({ selected: it.id === selectedId, done: !!decision })}>
                 <div className="mb-[3px] flex items-center gap-1.5">

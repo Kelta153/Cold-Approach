@@ -4,12 +4,9 @@ import IORedis from 'ioredis';
 import { DiscoveryProcessor } from './discovery.processor';
 import { DraftingProcessor } from './drafting.processor';
 import { EnrichmentProcessor } from './enrichment.processor';
+import { QUEUE_NAMES } from './queue-names';
 
-export const QUEUE_NAMES = {
-  discovery: 'discovery',
-  enrichment: 'enrichment',
-  drafting: 'drafting',
-} as const;
+export { QUEUE_NAMES };
 
 /** Placeholder BullMQ queues for each pipeline stage. Processors are stubs that log and mark the
  * job complete — real discovery/enrichment/drafting logic lands in a later phase. Connection is

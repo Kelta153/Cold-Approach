@@ -1,23 +1,24 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Bot } from 'grammy';
 import { prisma } from '@outreach-engine/db';
+import { SendingService } from '../sending/sending.service';
 import type { TelegramCallbackQuery, TelegramUpdate } from './telegram.types';
 
 /**
- * Scaffold only — see §7 of the spec. The webhook route, secret verification, and the
- * telegramUserId → User.id mapping exist now; real approve/reject/regenerate wiring is Phase 4.
- *
- * Phase 4 note: the Approve callback handler will call
- * `SendingService.attemptSend(draftId, approvedByUserId, 'telegram')` — the exact same
- * chokepoint-gated path the webapp's Approve button calls with `'webapp'`. It must never write
- * to the `Send` table itself or bypass `runComplianceChokepoint`.
+ * The webhook route, secret verification, the telegramUserId → User.id mapping, and the
+ * Approve → `attemptSend` wiring below are real. What's still missing (not built this pass):
+ * the *outbound* side — nothing yet calls Telegram's `sendMessage` to actually present a draft
+ * with Approve/Reject/Regenerate inline buttons in the first place, so `callback_query.data`'s
+ * `"approve:<draftId>"` format is this service's own convention, not yet produced by a live
+ * notification. Reject/Regenerate callbacks are logged but not wired — only Approve was in
+ * scope for this pass.
  */
 @Injectable()
 export class TelegramService {
   private readonly logger = new Logger(TelegramService.name);
   private readonly bot: Bot | null;
 
-  constructor() {
+  constructor(@Inject(SendingService) private readonly sendingService: SendingService) {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     this.bot = token ? new Bot(token) : null;
     if (!this.bot) {
@@ -43,9 +44,10 @@ export class TelegramService {
     return user ? { id: user.id, role: user.role } : null;
   }
 
-  /** Logs the update and resolves the sending user for a callback_query. Does not call
-   * `attemptSend` or take any send-related action — that is explicitly out of scope until
-   * Phase 4 wires the Approve/Reject/Regenerate buttons. */
+  /** Resolves the sending user for a callback_query and, on `"approve:<draftId>"`, calls the
+   * exact same `SendingService.attemptSend(draftId, approvedByUserId, 'telegram')` path the
+   * webapp's Send button calls with `'webapp'` — never a second write path to `Send`. Unlinked
+   * Telegram accounts and non-approve actions are logged, not acted on. */
   async handleUpdate(update: TelegramUpdate): Promise<void> {
     this.logger.log(`Received Telegram update ${update.update_id}`);
 
@@ -59,5 +61,23 @@ export class TelegramService {
       `callback_query from telegramUserId=${callbackQuery.from.id} data=${callbackQuery.data ?? '<none>'} ` +
         `resolvedUser=${user ? user.id : '<unlinked>'}`,
     );
+
+    if (!user) {
+      this.logger.warn(`Ignoring callback from unlinked Telegram account ${callbackQuery.from.id} — no matching User.telegramUserId.`);
+      return;
+    }
+
+    const [action, draftId] = (callbackQuery.data ?? '').split(':');
+    if (action !== 'approve' || !draftId) {
+      this.logger.log(`Callback action "${action}" is not wired to any send-affecting behavior yet.`);
+      return;
+    }
+
+    const result = await this.sendingService.attemptSend(draftId, user.id, 'telegram');
+    if (!result.allowed) {
+      this.logger.warn(`Telegram approve for draft ${draftId} was blocked by the compliance chokepoint: ${result.blockedReasons.join('; ')}`);
+    } else {
+      this.logger.log(`Telegram approve for draft ${draftId} sent successfully (approvedByUserId=${user.id}).`);
+    }
   }
 }

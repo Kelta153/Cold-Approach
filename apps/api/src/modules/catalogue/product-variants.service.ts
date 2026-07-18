@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { prisma, type Prisma } from '@outreach-engine/db';
 import { BusinessLineContext } from '../../common/business-line-scope/business-line-context';
 
@@ -11,7 +11,7 @@ import { BusinessLineContext } from '../../common/business-line-scope/business-l
  */
 @Injectable()
 export class ProductVariantsService {
-  constructor(private readonly businessLineContext: BusinessLineContext) {}
+  constructor(@Inject(BusinessLineContext) private readonly businessLineContext: BusinessLineContext) {}
 
   private async assertProductInScope(productId: string) {
     const product = await this.businessLineContext.db.product.findFirst({ where: { id: productId } });

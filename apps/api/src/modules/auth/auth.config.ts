@@ -1,5 +1,5 @@
 /**
- * BetterAuth (`better-auth` and `@better-auth/memory-adapter`) ship ESM-only ("type": "module",
+ * BetterAuth (`better-auth` and `@better-auth/prisma-adapter`) ship ESM-only ("type": "module",
  * no CJS build/`require` export condition). `apps/api` otherwise compiles to CommonJS to match
  * the rest of this monorepo's tooling (plain `tsc`, no bundler). A CommonJS file cannot
  * statically `import`/`require` an ESM-only package, so every touch point here uses a dynamic
@@ -7,6 +7,7 @@
  * ESM-only dependency — instead of a static `import ... from 'better-auth'`. Everything is
  * memoized so we only pay the dynamic-import cost once per process.
  */
+import { prisma } from '@outreach-engine/db';
 
 // Type-only reference: safe regardless of the ESM/CJS mismatch, erased at compile time.
 type NodeIntegrationModule = typeof import('better-auth/node');
@@ -27,23 +28,23 @@ function resolveAuthSecret(): string {
 }
 
 async function buildAuth() {
-  const [{ betterAuth }, { memoryAdapter }] = await Promise.all([
+  const [{ betterAuth }, { prismaAdapter }] = await Promise.all([
     import('better-auth'),
-    import('@better-auth/memory-adapter'),
+    import('@better-auth/prisma-adapter'),
   ]);
 
-  // Judgment call: BetterAuth normally owns its own `user`/`session`/`account`/`verification`
-  // tables via a Prisma/SQL adapter. `packages/db/prisma/schema.prisma` is locked verbatim for
-  // this phase and its `User` model is intentionally minimal (id, email, role, telegramUserId) —
-  // no password hash or session columns — and we were told not to alter its entity structure.
-  // Rather than bolt BetterAuth-owned columns onto the locked schema, this uses BetterAuth's
-  // official in-memory adapter as its own identity store for Phase 1. `role` is modelled as a
-  // BetterAuth `additionalField` so sessions carry it directly (see `RolesGuard`). This keeps
-  // auth fully wired (real sign-up/sign-in, real sessions, real role-gated routes) without
-  // touching the domain schema. A persistent adapter is a Phase 4 concern.
+  // BetterAuth owns `User`/`Session`/`Account`/`Verification` via its Prisma adapter, pointed at
+  // the same Postgres database as every other domain model. `User` is extended (not replaced)
+  // with the columns BetterAuth's adapter requires — see schema.prisma — so `role` and
+  // `telegramUserId` stay real, joinable domain columns rather than living in a second,
+  // disconnected identity store. `role` additionally rides on the session as a BetterAuth
+  // `additionalField` so `RolesGuard` can read it without an extra query.
   return betterAuth({
     secret: resolveAuthSecret(),
-    database: memoryAdapter({}),
+    baseURL: process.env.BETTER_AUTH_URL ?? `http://localhost:${process.env.PORT ?? 3001}`,
+    // apps/web runs on a different origin/port — cookies and CSRF checks need it allow-listed.
+    trustedOrigins: (process.env.WEB_APP_URL ?? 'http://localhost:3000').split(','),
+    database: prismaAdapter(prisma, { provider: 'postgresql' }),
     emailAndPassword: {
       enabled: true,
     },

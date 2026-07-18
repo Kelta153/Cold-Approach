@@ -1,19 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { prisma } from '@outreach-engine/db';
 import type { ApprovedVia, SendCheckContext, SendCheckResult } from '@outreach-engine/types';
+import { pickSendingInbox } from '../../common/pick-sending-inbox';
 import { ComplianceService } from '../compliance/compliance.service';
-
-interface SendingInboxConfig {
-  email: string;
-  dailyCap: number;
-  active: boolean;
-}
-
-function pickSendingInbox(sendingInboxes: unknown): string {
-  const inboxes = Array.isArray(sendingInboxes) ? (sendingInboxes as SendingInboxConfig[]) : [];
-  const active = inboxes.find((inbox) => inbox?.active);
-  return active?.email ?? inboxes[0]?.email ?? '';
-}
+import { sendViaInstantly } from './instantly-adapter';
 
 /**
  * `sending` is the *only* module in `apps/api` allowed to write a `Send` row — see the
@@ -24,7 +14,7 @@ function pickSendingInbox(sendingInboxes: unknown): string {
  */
 @Injectable()
 export class SendingService {
-  constructor(private readonly compliance: ComplianceService) {}
+  constructor(@Inject(ComplianceService) private readonly compliance: ComplianceService) {}
 
   async attemptSend(draftId: string, approvedByUserId: string, approvedVia: ApprovedVia): Promise<SendCheckResult> {
     const draft = await prisma.draft.findUnique({
@@ -48,8 +38,17 @@ export class SendingService {
       return result;
     }
 
-    // Actual provider dispatch (Instantly) is Phase 4 — recording the Send row here is what
-    // makes this the audited "point of send" today: it captures who approved it and how.
+    // Real provider dispatch — isolated in its own adapter, which itself decides whether to
+    // actually call Instantly or (with no INSTANTLY_API_KEY) return a simulated result. Either
+    // way, the compliance chokepoint above already gated this send; this step only decides how
+    // an already-approved send goes out.
+    const dispatch = await sendViaInstantly({
+      to: draft.lead.email ?? '',
+      subject: draft.subject,
+      body: draft.body,
+      fromInbox: ctx.sendingInbox,
+    });
+
     await prisma.send.create({
       data: {
         leadId: draft.leadId,
@@ -58,8 +57,12 @@ export class SendingService {
         status: 'sent',
         approvedByUserId,
         approvedVia,
+        providerMessageId: dispatch.providerMessageId,
+        simulated: dispatch.simulated,
       },
     });
+
+    await prisma.lead.update({ where: { id: draft.leadId }, data: { status: 'sent' } });
 
     return result;
   }

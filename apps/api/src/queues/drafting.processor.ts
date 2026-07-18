@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
-import { QUEUE_NAMES } from './queues.module';
+import { QUEUE_NAMES } from './queue-names';
 
 /** Placeholder processor — logs and marks the job complete. Real Claude-backed draft generation
  * lands in a later phase. */

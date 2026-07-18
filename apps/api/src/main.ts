@@ -15,14 +15,18 @@ async function bootstrap() {
 
   const [auth, { toNodeHandler }] = await Promise.all([getAuth(), getNodeIntegration()]);
 
-  const expressApp = app.getHttpAdapter().getInstance();
-  expressApp.all('/api/auth/*', toNodeHandler(auth));
-  app.use(express.json());
-
+  // CORS must be registered before the auth handler: Express runs middleware/routes in
+  // registration order, and `toNodeHandler` is a terminal handler that never calls `next()` —
+  // if CORS were added afterward (as it originally was here), every /api/auth/* request would
+  // complete and return before the CORS middleware ever ran, so the browser would block it.
   app.enableCors({
     origin: true,
     credentials: true,
   });
+
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.all('/api/auth/*', toNodeHandler(auth));
+  app.use(express.json());
 
   const port = process.env.PORT ? Number(process.env.PORT) : 3001;
   await app.listen(port);

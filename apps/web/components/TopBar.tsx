@@ -121,8 +121,8 @@ export function TopBar() {
       <Badge spec={roleBadge} />
       <div className="hidden text-[12.5px] text-text-secondary oe:block">{userEmail}</div>
       <button
-        onClick={() => {
-          signOut();
+        onClick={async () => {
+          await signOut();
           router.replace('/login');
         }}
         className="rounded-control border border-border3 px-2.5 py-1 text-xs text-text-secondary hover:border-border-hover hover:text-text"

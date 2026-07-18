@@ -3,8 +3,20 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ApprovedVia, DmQueueItemDto, ReplyQueueItemDto, ReviewQueueItemDto } from '@outreach-engine/types';
 import { getDmQueue, getReplyQueue, getReviewQueue } from '../data/queues';
+import {
+  attemptSend,
+  escalateReply,
+  markDmSent,
+  markReplyHandled,
+  rejectDmLead,
+  rejectReviewLead,
+  skipDmLead,
+  skipReply,
+  skipReviewLead,
+} from '../data/actions';
 import { getLines, type LineFixture } from '../data/lines';
 import type { DoneStatus } from '../badges';
+import { authClient } from '../auth-client';
 
 export type Role = 'operator' | 'admin';
 export type QueueKey = 'review' | 'reply' | 'dm';
@@ -12,6 +24,7 @@ export type QueueKey = 'review' | 'reply' | 'dm';
 export interface Decision {
   status: DoneStatus;
   approvedVia?: ApprovedVia;
+  simulated?: boolean;
 }
 
 export interface DraftEdit {
@@ -20,11 +33,12 @@ export interface DraftEdit {
 }
 
 interface AppStateValue {
-  // session
+  // session — real BetterAuth session against apps/api, not client-side mocked state
   role: Role | null;
   userEmail: string;
-  signIn: (email: string, role: Role) => void;
-  signOut: () => void;
+  authLoading: boolean;
+  signIn: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  signOut: () => Promise<void>;
 
   // theme
   theme: 'dark' | 'light';
@@ -50,7 +64,11 @@ interface AppStateValue {
 
   // decisions + drafts (keyed "queue:id")
   decisions: Record<string, Decision>;
-  decide: (queue: QueueKey, id: string, status: DoneStatus, approvedVia?: ApprovedVia) => void;
+  /** `backendId` is the id the real API action needs — the Lead id for skip/reject/dm-sent,
+   * distinct from `id` (the local decision key, which stays the Draft/Reply/DmDraft id so list
+   * rows and selection keep working unchanged). Defaults to `id` when they're the same thing
+   * (sending a Draft, or any Reply action — Reply's queue-item id already is the Reply id). */
+  decide: (queue: QueueKey, id: string, status: DoneStatus, approvedVia?: ApprovedVia, backendId?: string) => Promise<void>;
   isDecided: (queue: QueueKey, id: string) => Decision | undefined;
   resetQueues: () => void;
 
@@ -80,20 +98,18 @@ const AppStateContext = createContext<AppStateValue | null>(null);
 const LINE_SWITCH_SKELETON_MS = 650;
 const TOAST_MS = 2200;
 
-// Seed a couple of items as already decided so the "sent via Telegram" badge treatment and
-// the auto-suppression-on-reject copy are visible without needing a live bot session.
-const INITIAL_DECISIONS: Record<string, Decision> = {
-  'review:msg_7a1x4d': { status: 'sent', approvedVia: 'telegram' },
-  'reply:rep_8m1e': { status: 'sent', approvedVia: 'telegram' },
-};
+// Real data now — a decided item's "sent via Telegram"/simulated badge comes from the real
+// Send row (see seedDecisionsFromSend below), not a hardcoded demo seed.
+const INITIAL_DECISIONS: Record<string, Decision> = {};
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<Role | null>(null);
-  const [userEmail, setUserEmail] = useState('kay@balbusgroup.co.uk');
+  const [userEmail, setUserEmail] = useState('');
+  const [authLoading, setAuthLoading] = useState(true);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
   const [lines, setLines] = useState<LineFixture[]>([]);
-  const [activeLineId, setActiveLineId] = useState('ln_aurora');
+  const [activeLineId, setActiveLineId] = useState('');
   const [isLoadingLine, setIsLoadingLine] = useState(false);
   const [lineMenuOpen, setLineMenuOpen] = useState(false);
 
@@ -108,27 +124,51 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [drafts, setDrafts] = useState<Record<string, DraftEdit>>({});
   const [selection, setSelection] = useState<Record<QueueKey, string | undefined>>({ review: undefined, reply: undefined, dm: undefined });
 
-  const [adminLineId, setAdminLineId] = useState('ln_aurora');
+  const [adminLineId, setAdminLineId] = useState('');
   const [adminTab, setAdminTab] = useState<'catalogue' | 'templates' | 'targeting'>('catalogue');
-  const [warm, setWarm] = useState<Record<string, boolean>>({ ln_aurora: true, ln_forge: false });
-  const [channels, setChannels] = useState<Record<string, { email: boolean; ig: boolean }>>({
-    ln_aurora: { email: true, ig: true },
-    ln_forge: { email: true, ig: false },
-  });
+  const [warm, setWarm] = useState<Record<string, boolean>>({});
+  const [channels, setChannels] = useState<Record<string, { email: boolean; ig: boolean }>>({});
   const [tplId, setTplId] = useState('tpl_01h2x');
   const [tplDrafts, setTplDrafts] = useState<Record<string, DraftEdit>>({});
 
+  // Requires a session — GET /business-lines is authenticated, so this must wait for sign-in
+  // rather than firing unconditionally on mount (which would 401 while still on /login).
   useEffect(() => {
-    getLines().then(setLines);
-  }, []);
+    if (!role) return;
+    getLines().then((ls) => {
+      setLines(ls);
+      const first = ls[0];
+      if (!first) return;
+      setActiveLineId((prev) => prev || first.id);
+      setAdminLineId((prev) => prev || first.id);
+      setWarm((prev) => (first.id in prev ? prev : { ...prev, [first.id]: first.warmupComplete }));
+      setChannels((prev) => (first.id in prev ? prev : { ...prev, [first.id]: { email: first.channelsEnabled.email, ig: first.channelsEnabled.instagram } }));
+    });
+  }, [role]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  // A page reload re-fetches from the real API — any item that already has a `.send` (a real,
+  // previously-completed send) must show as decided immediately, not flash as pending again.
+  const seedDecisionsFromSend = useCallback((queue: QueueKey, items: { id: string; send?: { approvedVia: ApprovedVia; simulated: boolean } }[]) => {
+    const withSend = items.filter((it) => it.send);
+    if (withSend.length === 0) return;
+    setDecisions((prev) => {
+      const next = { ...prev };
+      for (const it of withSend) {
+        const key = `${queue}:${it.id}`;
+        if (!next[key]) next[key] = { status: 'sent', approvedVia: it.send!.approvedVia, simulated: it.send!.simulated };
+      }
+      return next;
+    });
+  }, []);
+
   const loadQueuesForLine = useCallback((lineId: string) => {
     getReviewQueue(lineId).then((items) => {
       setReviewItems(items);
+      seedDecisionsFromSend('review', items);
       setSelection((sel) => ({ ...sel, review: sel.review && items.some((i) => i.id === sel.review) ? sel.review : items[0]?.id }));
     });
     getReplyQueue(lineId).then((items) => {
@@ -139,10 +179,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setDmItems(items);
       setSelection((sel) => ({ ...sel, dm: sel.dm && items.some((i) => i.id === sel.dm) ? sel.dm : items[0]?.id }));
     });
-  }, []);
+  }, [seedDecisionsFromSend]);
 
   useEffect(() => {
-    loadQueuesForLine(activeLineId);
+    if (activeLineId) loadQueuesForLine(activeLineId);
   }, [activeLineId, loadQueuesForLine]);
 
   const showToast = useCallback((message: string) => {
@@ -155,13 +195,45 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
   }, []);
 
-  const signIn = useCallback((email: string, signedInRole: Role) => {
-    setUserEmail(email);
-    setRole(signedInRole);
+  const applySession = useCallback((user: { email: string; role?: string } | null | undefined) => {
+    if (user && (user.role === 'admin' || user.role === 'operator')) {
+      setUserEmail(user.email);
+      setRole(user.role);
+    } else {
+      setUserEmail('');
+      setRole(null);
+    }
   }, []);
 
-  const signOut = useCallback(() => {
+  useEffect(() => {
+    let cancelled = false;
+    authClient.getSession().then(({ data }) => {
+      if (!cancelled) {
+        applySession(data?.user as { email: string; role?: string } | undefined);
+        setAuthLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [applySession]);
+
+  const signIn = useCallback(
+    async (email: string, password: string) => {
+      const { data, error } = await authClient.signIn.email({ email, password });
+      if (error || !data?.user) {
+        return { ok: false as const, error: error?.message ?? 'Sign in failed.' };
+      }
+      applySession(data.user as { email: string; role?: string });
+      return { ok: true as const };
+    },
+    [applySession],
+  );
+
+  const signOut = useCallback(async () => {
+    await authClient.signOut();
     setRole(null);
+    setUserEmail('');
     setLineMenuOpen(false);
   }, []);
 
@@ -182,10 +254,55 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [activeLineId],
   );
 
+  // Real API call per (queue, status) — the action that actually persists the decision.
+  // `undefined` means "no real endpoint for this yet" (Regenerate has no real drafting pipeline
+  // to call, so it stays a local-only edit — see the queue pages).
+  const runBackendAction = useCallback(
+    async (queue: QueueKey, id: string, status: DoneStatus, backendId: string): Promise<{ approvedVia?: ApprovedVia; simulated?: boolean } | void> => {
+      if (queue === 'review') {
+        if (status === 'sent') {
+          const result = await attemptSend(id, activeLineId);
+          if (!result.allowed) throw new Error(result.blockedReasons.join(' '));
+          // attemptSend's response is just {allowed, blockedReasons} — refetch to learn the real
+          // approvedVia/simulated flag the backend actually recorded on the Send row.
+          const refreshed = await getReviewQueue(activeLineId);
+          setReviewItems(refreshed);
+          const sentItem = refreshed.find((it) => it.id === id);
+          return { approvedVia: sentItem?.send?.approvedVia ?? 'webapp', simulated: sentItem?.send?.simulated };
+        }
+        if (status === 'skipped') return void (await skipReviewLead(backendId, activeLineId));
+        if (status === 'rejected') return void (await rejectReviewLead(backendId, activeLineId));
+      }
+      if (queue === 'dm') {
+        if (status === 'sent') return void (await markDmSent(backendId, activeLineId));
+        if (status === 'skipped') return void (await skipDmLead(backendId, activeLineId));
+        if (status === 'rejected') return void (await rejectDmLead(backendId, activeLineId));
+      }
+      if (queue === 'reply') {
+        if (status === 'handled') return void (await markReplyHandled(backendId, activeLineId));
+        if (status === 'escalated') return void (await escalateReply(backendId, activeLineId));
+        if (status === 'skipped') return void (await skipReply(backendId, activeLineId));
+        if (status === 'sent') return; // no modeled reply-send path yet — see docs/project.md
+      }
+    },
+    [activeLineId],
+  );
+
   const decide = useCallback(
-    (queue: QueueKey, id: string, status: DoneStatus, approvedVia?: ApprovedVia) => {
+    async (queue: QueueKey, id: string, status: DoneStatus, approvedVia?: ApprovedVia, backendId?: string) => {
+      let sendResult: { approvedVia?: ApprovedVia; simulated?: boolean } | void;
+      try {
+        sendResult = await runBackendAction(queue, id, status, backendId ?? id);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Action failed.');
+        return;
+      }
+
       const key = `${queue}:${id}`;
-      setDecisions((prev) => ({ ...prev, [key]: { status, approvedVia } }));
+      setDecisions((prev) => ({
+        ...prev,
+        [key]: { status, approvedVia: sendResult?.approvedVia ?? approvedVia, simulated: sendResult?.simulated },
+      }));
 
       const items = queue === 'review' ? reviewItems : queue === 'reply' ? replyItems : dmItems;
       const idx = items.findIndex((it) => it.id === id);
@@ -200,7 +317,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       }
 
       const verb: Record<DoneStatus, string> = {
-        sent: 'Sent',
+        sent: sendResult?.simulated ? 'Sent (simulated — no INSTANTLY_API_KEY configured)' : 'Sent',
         skipped: 'Skipped',
         rejected: 'Rejected → added to suppression list',
         escalated: 'Escalated to admin',
@@ -208,7 +325,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       };
       showToast(verb[status]);
     },
-    [decisions, reviewItems, replyItems, dmItems, showToast],
+    [decisions, reviewItems, replyItems, dmItems, showToast, runBackendAction],
   );
 
   const isDecided = useCallback((queue: QueueKey, id: string) => decisions[`${queue}:${id}`], [decisions]);
@@ -245,6 +362,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     () => ({
       role,
       userEmail,
+      authLoading,
       signIn,
       signOut,
       theme,
@@ -283,7 +401,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setTplDraft,
     }),
     [
-      role, userEmail, signIn, signOut, theme, toggleTheme, lines, activeLineId, switchLine, isLoadingLine,
+      role, userEmail, authLoading, signIn, signOut, theme, toggleTheme, lines, activeLineId, switchLine, isLoadingLine,
       lineMenuOpen, toast, showToast, reviewItems, replyItems, dmItems, decisions, decide, isDecided, resetQueues,
       drafts, setDraft, selection, select, adminLineId, adminTab, warm, toggleWarm, channels, toggleChannel,
       tplId, tplDrafts, setTplDraft,

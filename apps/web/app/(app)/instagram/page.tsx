@@ -46,9 +46,9 @@ export default function InstagramPage() {
           {selectedItem && pending.length > 0 ? (
             <DmDetail
               item={selectedItem}
-              onSent={() => decide('dm', selectedItem.id, 'sent')}
-              onSkip={() => decide('dm', selectedItem.id, 'skipped')}
-              onReject={() => decide('dm', selectedItem.id, 'rejected')}
+              onSent={() => decide('dm', selectedItem.id, 'sent', undefined, selectedItem.leadId)}
+              onSkip={() => decide('dm', selectedItem.id, 'skipped', undefined, selectedItem.leadId)}
+              onReject={() => decide('dm', selectedItem.id, 'rejected', undefined, selectedItem.leadId)}
             />
           ) : (
             <div className="flex h-full items-center justify-center text-[13px] text-text-muted">DM queue clear.</div>

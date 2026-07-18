@@ -316,6 +316,7 @@ model Send {
   status            SendStatus
   approvedByUserId  String     @map("approved_by_user_id") // audit: who pressed send — webapp or Telegram user
   approvedVia       String     @map("approved_via")        // "webapp" | "telegram"
+  simulated         Boolean    @default(false) @map("simulated") // true when no INSTANTLY_API_KEY is configured — no real email was sent
 
   replies           Reply[]
 
@@ -428,12 +429,72 @@ model Batch {
 // USERS
 // ─────────────────────────────────────────────────────────
 
+// User doubles as BetterAuth's own user table — extended with the fields its Prisma adapter
+// requires (name, emailVerified, image, updatedAt, sessions/accounts relations) rather than
+// standing up a second, disconnected identity store. role stays a real domain column (a
+// BetterAuth `additionalField` mirrors it onto the session — see apps/api/auth.config.ts).
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  role         UserRole
-  telegramUserId String? @unique @map("telegram_user_id") // links Telegram approvals to an audited identity
-  createdAt    DateTime @default(now()) @map("created_at")
+  id             String    @id @default(uuid())
+  email          String    @unique
+  role           UserRole
+  telegramUserId String?   @unique @map("telegram_user_id") // links Telegram approvals to an audited identity
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  name           String    @default("")
+  emailVerified  Boolean   @default(false) @map("email_verified")
+  image          String?
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  sessions       Session[]
+  accounts       Account[]
 
   @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────
+// AUTH (BetterAuth-owned tables — persistent Prisma adapter)
+// ─────────────────────────────────────────────────────────
+
+model Session {
+  id        String   @id @default(uuid())
+  expiresAt DateTime @map("expires_at")
+  token     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Account {
+  id                    String    @id @default(uuid())
+  accountId             String    @map("account_id")
+  providerId            String    @map("provider_id")
+  userId                String    @map("user_id")
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?   @map("access_token")
+  refreshToken          String?   @map("refresh_token")
+  idToken               String?   @map("id_token")
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@map("accounts")
+}
+
+model Verification {
+  id         String    @id @default(uuid())
+  identifier String
+  value      String
+  expiresAt  DateTime  @map("expires_at")
+  createdAt  DateTime? @default(now()) @map("created_at")
+  updatedAt  DateTime? @updatedAt @map("updated_at")
+
+  @@map("verifications")
 }

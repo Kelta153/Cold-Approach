@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, Post, UseGuards } from '@nestjs/common';
 import type { Prisma } from '@outreach-engine/db';
 import { Roles } from '../../common/guards/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -8,7 +8,7 @@ import { SuppressionService } from './suppression.service';
 @UseGuards(RolesGuard)
 @Roles('admin', 'operator')
 export class SuppressionController {
-  constructor(private readonly suppressionService: SuppressionService) {}
+  constructor(@Inject(SuppressionService) private readonly suppressionService: SuppressionService) {}
 
   @Get()
   findAll() {

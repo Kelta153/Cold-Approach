@@ -1,10 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@outreach-engine/db';
 import { BusinessLineContext } from '../../common/business-line-scope/business-line-context';
 
 @Injectable()
 export class SuppressionService {
-  constructor(private readonly businessLineContext: BusinessLineContext) {}
+  constructor(@Inject(BusinessLineContext) private readonly businessLineContext: BusinessLineContext) {}
 
   findAll() {
     return this.businessLineContext.db.suppressionEntry.findMany();

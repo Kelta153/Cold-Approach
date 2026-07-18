@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import type { UserRole } from '@outreach-engine/types';
@@ -7,10 +7,16 @@ import { ROLES_KEY } from './roles.decorator';
 
 /** Restricts a route to the role(s) declared via `@Roles(...)`. With no `@Roles(...)` decorator,
  * this guard still requires a valid BetterAuth session but does not check role. Attaches the
- * resolved session user to `request.authUser` for downstream handlers/services. */
+ * resolved session user to `request.authUser` for downstream handlers/services.
+ *
+ * `@Inject(Reflector)` is deliberate, not decorative: `apps/api`'s dev server runs this code
+ * through `tsx` (esbuild), which does not reliably emit the `design:paramtypes` metadata plain
+ * constructor-parameter typing depends on for Nest's DI — a bare `constructor(private reflector:
+ * Reflector)` silently injects `undefined` under esbuild even though it works fine under `tsc`.
+ * An explicit `@Inject()` token sidesteps that metadata entirely. */
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(@Inject(Reflector) private readonly reflector: Reflector) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const requiredRoles = this.reflector.getAllAndOverride<UserRole[] | undefined>(ROLES_KEY, [

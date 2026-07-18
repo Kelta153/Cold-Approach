@@ -45,10 +45,14 @@ const DONE_LABEL: Record<DoneStatus, string> = {
 };
 
 /** `approvedVia` only matters for a 'sent' decision — Telegram-approved items get a distinct
- * "sent · Telegram" badge so operators can tell a bot approval from a webapp one at a glance. */
-export function doneBadge(status: DoneStatus, approvedVia?: ApprovedVia): BadgeSpec {
-  const color = DONE_COLOR[status] ?? '#8a90a1';
-  const label = status === 'sent' && approvedVia === 'telegram' ? 'sent · Telegram' : DONE_LABEL[status] ?? status;
+ * "sent · Telegram" badge so operators can tell a bot approval from a webapp one at a glance.
+ * `simulated` (no INSTANTLY_API_KEY configured) must stay visibly distinct from a real send too —
+ * never silently indistinguishable, per the compliance-first tone of every other status here. */
+export function doneBadge(status: DoneStatus, approvedVia?: ApprovedVia, simulated?: boolean): BadgeSpec {
+  const color = simulated && status === 'sent' ? '#e8a33d' : DONE_COLOR[status] ?? '#8a90a1';
+  const viaSuffix = status === 'sent' && approvedVia === 'telegram' ? ' · Telegram' : '';
+  const simulatedSuffix = simulated && status === 'sent' ? ' · simulated' : '';
+  const label = status === 'sent' ? `sent${viaSuffix}${simulatedSuffix}` : DONE_LABEL[status] ?? status;
   return badge(color, label);
 }
 

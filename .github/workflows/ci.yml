@@ -2,6 +2,8 @@ name: CI
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 jobs:
   build-lint-test:
@@ -41,7 +43,11 @@ jobs:
         run: pnpm turbo lint
 
       - name: Test
-        run: pnpm turbo test
+        # --concurrency=1: running every package's vitest workers fully in parallel can exhaust
+        # the runner's process/thread limits and crash with a spurious "Worker exited
+        # unexpectedly" — serializing is reliable and still fast (whole suite is well under a
+        # minute). See CLAUDE.md.
+        run: pnpm turbo test --concurrency=1
 
       - name: Prisma migrate deploy (dry run)
         run: pnpm --filter @outreach-engine/db exec prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script

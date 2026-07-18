@@ -6,11 +6,12 @@ import { useAppState } from '../lib/state/app-state';
 
 export default function RootPage() {
   const router = useRouter();
-  const { role } = useAppState();
+  const { role, authLoading } = useAppState();
 
   useEffect(() => {
+    if (authLoading) return;
     router.replace(role ? '/review' : '/login');
-  }, [role, router]);
+  }, [role, authLoading, router]);
 
   return null;
 }

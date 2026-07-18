@@ -3,28 +3,25 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { useAppState, type Role } from '../../lib/state/app-state';
+import { useAppState } from '../../lib/state/app-state';
 
 export default function LoginPage() {
   const router = useRouter();
   const { theme, toggleTheme, signIn } = useAppState();
-  const [email, setEmail] = useState('kay@balbusgroup.co.uk');
-  const [pickedRole, setPickedRole] = useState<Role>('operator');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const segmentStyle = (active: boolean): React.CSSProperties => ({
-    flex: 1,
-    padding: 8,
-    border: 'none',
-    cursor: 'pointer',
-    fontSize: 12.5,
-    fontWeight: 600,
-    fontFamily: 'inherit',
-    background: active ? 'var(--oe-segment-active-bg)' : 'transparent',
-    color: active ? 'var(--oe-text)' : 'var(--oe-text-secondary)',
-  });
-
-  const onSignIn = () => {
-    signIn(email, pickedRole);
+  const onSignIn = async () => {
+    setError(null);
+    setSubmitting(true);
+    const result = await signIn(email, password);
+    setSubmitting(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
     router.replace('/review');
   };
 
@@ -56,13 +53,20 @@ export default function LoginPage() {
           <div className="mb-1 text-[17px] font-semibold">Sign in</div>
           <div className="mb-[22px] text-[13px] text-text-secondary">Operator console access</div>
 
-          <div className="flex flex-col gap-3.5">
+          <form
+            className="flex flex-col gap-3.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              onSignIn();
+            }}
+          >
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-label">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
                 className="rounded-control border border-border3 bg-bg px-[11px] py-[9px] text-[13.5px] text-text"
               />
             </div>
@@ -70,34 +74,21 @@ export default function LoginPage() {
               <label className="text-xs font-medium text-label">Password</label>
               <input
                 type="password"
-                value="demo-password"
-                readOnly
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
                 className="rounded-control border border-border3 bg-bg px-[11px] py-[9px] text-[13.5px] text-text"
               />
             </div>
-            <div className="mt-0.5 flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-label">Sign in as</label>
-              <div className="flex overflow-hidden rounded-control border border-border3">
-                <button onClick={() => setPickedRole('operator')} style={segmentStyle(pickedRole === 'operator')}>
-                  Operator
-                </button>
-                <button onClick={() => setPickedRole('admin')} style={segmentStyle(pickedRole === 'admin')}>
-                  Admin
-                </button>
-              </div>
-              <div className="text-[11.5px] text-text-muted">
-                {pickedRole === 'admin'
-                  ? 'Queues + line management, templates, targeting, batches.'
-                  : 'Queues only — review, replies, Instagram.'}
-              </div>
-            </div>
+            {error && <div className="text-[12px] text-red">{error}</div>}
             <button
-              onClick={onSignIn}
-              className="mt-2 rounded-control border border-action bg-action py-[10px] text-[13.5px] font-semibold text-white hover:bg-action-hover"
+              type="submit"
+              disabled={submitting || !email || !password}
+              className="mt-2 rounded-control border border-action bg-action py-[10px] text-[13.5px] font-semibold text-white hover:bg-action-hover disabled:opacity-50"
             >
-              Continue
+              {submitting ? 'Signing in…' : 'Continue'}
             </button>
-          </div>
+          </form>
         </div>
       </div>
     </div>

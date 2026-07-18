@@ -11,6 +11,7 @@ import { DraftingModule } from './modules/drafting/drafting.module';
 import { EnrichmentModule } from './modules/enrichment/enrichment.module';
 import { InstagramModule } from './modules/instagram/instagram.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { QueueModule } from './modules/queue/queue.module';
 import { RepliesModule } from './modules/replies/replies.module';
 import { SendingModule } from './modules/sending/sending.module';
 import { SuppressionModule } from './modules/suppression/suppression.module';
@@ -32,6 +33,7 @@ import { QueuesModule } from './queues/queues.module';
     DraftingModule,
     ComplianceModule,
     SendingModule,
+    QueueModule,
     RepliesModule,
     InstagramModule,
     SuppressionModule,

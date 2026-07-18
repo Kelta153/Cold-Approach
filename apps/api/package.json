@@ -20,7 +20,7 @@
     "@outreach-engine/db": "workspace:*",
     "@outreach-engine/enrichment": "workspace:*",
     "@outreach-engine/types": "workspace:*",
-    "@better-auth/memory-adapter": "^1.6.23",
+    "@better-auth/prisma-adapter": "^1.6.23",
     "better-auth": "^1.6.23",
     "bullmq": "^5.80.4",
     "express": "^4.21.2",
