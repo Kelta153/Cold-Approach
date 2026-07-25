@@ -54,3 +54,17 @@ export async function getLines(): Promise<LineFixture[]> {
 export async function getLine(lineId: string): Promise<LineFixture | undefined> {
   return (await getLines()).find((l) => l.id === lineId);
 }
+
+/** Admin-only PATCH — see BusinessLinesController's `@Roles('admin')` gate on this route. Used
+ * by the warm-up toggle and channel switches, which are real, persisted fields (not local-only
+ * demo state — see schema.prisma `BusinessLine.warmupComplete`/`channelsEnabled`). Returns just
+ * the two fields the callers need, rather than a full re-mapped `LineFixture` (which would need
+ * a color-index it doesn't have in this context). */
+export async function updateBusinessLine(
+  lineId: string,
+  patch: { warmupComplete?: boolean; channelsEnabled?: { email: boolean; instagram: boolean } },
+): Promise<{ warmupComplete: boolean; channelsEnabled: { email: boolean; instagram: boolean } }> {
+  const raw = await apiFetch<RawBusinessLine>(`/business-lines/${lineId}`, { method: 'PATCH', body: patch });
+  const channels = (raw.channelsEnabled as { email?: boolean; instagram?: boolean } | null) ?? {};
+  return { warmupComplete: raw.warmupComplete, channelsEnabled: { email: channels.email ?? true, instagram: channels.instagram ?? false } };
+}

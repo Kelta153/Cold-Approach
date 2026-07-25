@@ -96,7 +96,8 @@ export interface TemplateDto {
   type: TemplateType;
   subjectSkeleton: string | null;
   bodySkeleton: string;
-  version: number;
+  active: boolean;
+  createdAt: string;
 }
 
 export interface CatalogueRowDto {
@@ -123,5 +124,12 @@ export interface BatchDto {
   channel: BatchChannel;
   funnelLabel: string;
   apiSpendLabel: string;
-  status: 'complete' | 'drafting' | 'failed';
+  status: 'discovering' | 'enriching' | 'drafting' | 'complete' | 'failed';
+}
+
+export interface CreateBatchDto {
+  profileId: string;
+  productId: string;
+  geography: string;
+  sizeRequested: number;
 }

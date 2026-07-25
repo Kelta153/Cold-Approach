@@ -1,14 +1,4 @@
-import type {
-  BatchDto,
-  CatalogueRowDto,
-  DmQueueItemDto,
-  EmailStatus,
-  ReplyQueueItemDto,
-  ReviewQueueItemDto,
-  SendAuditDto,
-  TargetingRowDto,
-  TemplateDto,
-} from '@outreach-engine/types';
+import type { DmQueueItemDto, EmailStatus, ReplyQueueItemDto, ReviewQueueItemDto, SendAuditDto } from '@outreach-engine/types';
 
 /**
  * Fixtures shaped 1:1 onto future API responses. Field names/enum values are reconciled
@@ -265,52 +255,10 @@ export const dmItems: (DmQueueItemDto & { line: string })[] = [
   },
 ];
 
-export const templates: TemplateDto[] = [
-  {
-    id: 'tpl_01h2x', businessLineId: 'ln_aurora', type: 'email_outbound', version: 3,
-    subjectSkeleton: 'Clean-label margins for {{company}}',
-    bodySkeleton: 'Hi {{first_name}},\n\n{{personalized_hook}}\n\nAurora is COSMOS-certified, UK-made, and structured so independents keep a 58%+ margin.\n\nWorth a quick look at the line sheet?\n\n{{sender_name}}',
-  },
-  {
-    id: 'tpl_01h3y', businessLineId: 'ln_aurora', type: 'email_outbound', version: 2,
-    subjectSkeleton: 'Re: Clean-label margins for {{company}}',
-    bodySkeleton: 'Hi {{first_name}},\n\nQuick nudge — since I wrote, {{recent_stockist}} started carrying the range and reordered within 3 weeks.\n\nStill happy to send samples to {{city}}.\n\n{{sender_name}}',
-  },
-  {
-    id: 'tpl_01h4z', businessLineId: 'ln_aurora', type: 'instagram_dm', version: 2,
-    subjectSkeleton: null,
-    bodySkeleton: 'Hey! {{personalized_hook}} I run Aurora, a COSMOS-certified line made in Somerset — we stock boutiques like yours with tiny minimums. Want the line sheet?',
-  },
-];
-
-export const templateNames: Record<string, string> = {
-  tpl_01h2x: 'Cold intro — retailer v3',
-  tpl_01h3y: 'Follow-up 1 — social proof',
-  tpl_01h4z: 'IG DM — boutique v2',
-};
-
+/** Merge-token vocabulary offered by the Templates editor's "Insert token" row — not persisted
+ * anywhere (Template.bodySkeleton is free text), just the fixed set of placeholders the drafting
+ * pipeline knows how to interpret. */
 export const tokens = ['{{first_name}}', '{{company}}', '{{city}}', '{{personalized_hook}}', '{{recent_stockist}}', '{{sender_name}}', '{{unsubscribe}}'];
-
-export const catalogue: CatalogueRowDto[] = [
-  { sku: 'AUR-CLN-01', name: 'Gentle Cleansing Balm 90ml', priceLabel: '£7.40 / unit', moq: 12, active: true },
-  { sku: 'AUR-SRM-02', name: 'Barrier Repair Serum 30ml', priceLabel: '£11.20 / unit', moq: 12, active: true },
-  { sku: 'AUR-MST-03', name: 'Daily Moisture Cream 50ml', priceLabel: '£8.90 / unit', moq: 12, active: true },
-  { sku: 'AUR-KIT-ST', name: 'Retail Starter Bundle (36 units + POS)', priceLabel: '£298.00 / kit', moq: 1, active: true },
-  { sku: 'AUR-SPF-04', name: 'Mineral SPF30 40ml', priceLabel: '£9.60 / unit', moq: 12, active: false },
-];
-
-export const targeting: TargetingRowDto[] = [
-  { name: 'UK indie beauty retailers', description: '1–5 locations, clean-beauty positioning', geography: 'UK', channel: 'email + instagram_dm', prospectsFound: 1842, active: true },
-  { name: 'Facial studios w/ retail corner', description: 'IG-first, 5k–50k followers', geography: 'UK', channel: 'instagram_dm', prospectsFound: 634, active: true },
-  { name: 'Salon wholesale distributors', description: 'Regional distributors, 10+ staff', geography: 'UK + IE', channel: 'email', prospectsFound: 207, active: false },
-];
-
-export const batches: BatchDto[] = [
-  { id: 'bat_01j8m2', date: '14 Jul 2026', profile: 'UK indie beauty retailers', channel: 'email', funnelLabel: '412 → 236 → 198 → 180', apiSpendLabel: '$14.20', status: 'complete' },
-  { id: 'bat_01j7k9', date: '11 Jul 2026', profile: 'Facial studios w/ retail corner', channel: 'instagram', funnelLabel: '180 → 122 → 96 → —', apiSpendLabel: '$8.75', status: 'drafting' },
-  { id: 'bat_01j6h4', date: '8 Jul 2026', profile: 'UK indie beauty retailers', channel: 'email', funnelLabel: '395 → 241 → 210 → 202', apiSpendLabel: '$13.60', status: 'complete' },
-  { id: 'bat_01j5f1', date: '4 Jul 2026', profile: 'Salon wholesale distributors', channel: 'email', funnelLabel: '88 → 41 → — → —', apiSpendLabel: '$3.10', status: 'failed' },
-];
 
 export const batchStats = [
   { label: 'Batches run', value: '24', sub: 'last 90 days' },

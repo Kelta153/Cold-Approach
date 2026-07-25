@@ -13,6 +13,11 @@ export async function apiFetch<T>(path: string, opts: ApiFetchOptions = {}): Pro
   const res = await fetch(`${API_URL}${path}`, {
     method: opts.method ?? 'GET',
     credentials: 'include',
+    // Every screen here re-fetches right after a create/update/delete on the same page (no
+    // navigation in between) — without this, the browser's HTTP cache can silently serve the
+    // pre-mutation response for the identical GET URL, making a successful write look like it
+    // did nothing until the next full page load.
+    cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
       ...(opts.businessLineId ? { 'X-Business-Line-Id': opts.businessLineId } : {}),

@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@better-auth/prisma-adapter": "^1.6.23",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^10.4.15",
     "@nestjs/config": "^3.3.0",
@@ -19,10 +20,11 @@
     "@outreach-engine/compliance-rules": "workspace:*",
     "@outreach-engine/db": "workspace:*",
     "@outreach-engine/enrichment": "workspace:*",
+    "@outreach-engine/llm-provider": "workspace:*",
     "@outreach-engine/types": "workspace:*",
-    "@better-auth/prisma-adapter": "^1.6.23",
     "better-auth": "^1.6.23",
     "bullmq": "^5.80.4",
+    "dotenv": "^17.4.2",
     "express": "^4.21.2",
     "grammy": "^1.44.0",
     "ioredis": "^5.11.1",

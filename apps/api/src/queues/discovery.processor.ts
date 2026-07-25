@@ -1,16 +1,99 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
-import type { Job } from 'bullmq';
+import type { Job, Queue } from 'bullmq';
+import { prisma } from '@outreach-engine/db';
+import { searchBusinesses } from '../modules/discovery/google-places.client';
+import { updateBatchStats } from '../modules/discovery/batch-stats';
 import { QUEUE_NAMES } from './queue-names';
+import type { DiscoveryJobPayload, EnrichmentJobPayload } from './job-payloads';
 
-/** Placeholder processor — logs and marks the job complete. Real Google Places-backed discovery
- * logic lands in a later phase. */
+/** Real Google Places-backed discovery. For each place returned by the text search: skip
+ * exclusions, dedupe against an existing `Business.googlePlaceId`, skip anything already
+ * suppressed for this business line, then create `Business` + `Lead` rows and hand each new lead
+ * off to the `enrichment` queue. */
 @Processor(QUEUE_NAMES.discovery)
 export class DiscoveryProcessor extends WorkerHost {
   private readonly logger = new Logger(DiscoveryProcessor.name);
 
-  async process(job: Job): Promise<{ ok: true }> {
-    this.logger.log(`[discovery] processing job ${job.id} (stub) — payload: ${JSON.stringify(job.data)}`);
-    return { ok: true };
+  constructor(@InjectQueue(QUEUE_NAMES.enrichment) private readonly enrichmentQueue: Queue<EnrichmentJobPayload>) {
+    super();
+  }
+
+  async process(job: Job<DiscoveryJobPayload>): Promise<{ leadsCreated: number }> {
+    const { batchId, businessLineId, profileId, productId, geography, sizeRequested } = job.data;
+    this.logger.log(`[discovery] batch ${batchId}: searching Google Places for "${geography}"`);
+
+    const profile = await prisma.targetingProfile.findUniqueOrThrow({ where: { id: profileId } });
+    const queryText = [...profile.keywords, geography].filter(Boolean).join(' ');
+
+    const places = await searchBusinesses(queryText, sizeRequested * 2);
+    await updateBatchStats(batchId, (stats) => {
+      stats.placesCalls += 1;
+    });
+
+    const exclusions = profile.exclusions.map((e) => e.toLowerCase());
+    let created = 0;
+
+    for (const place of places) {
+      if (created >= sizeRequested) break;
+      if (exclusions.some((ex) => place.name.toLowerCase().includes(ex))) {
+        this.logger.log(`[discovery] skip "${place.name}" — matches exclusion`);
+        continue;
+      }
+
+      const existingBusiness = await prisma.business.findUnique({ where: { googlePlaceId: place.placeId } });
+      if (existingBusiness) {
+        const existingLead = await prisma.lead.findFirst({
+          where: { businessLineId, businessId: existingBusiness.id },
+        });
+        if (existingLead) {
+          this.logger.log(`[discovery] skip "${place.name}" — already discovered for this business line`);
+          continue;
+        }
+      }
+
+      const suppressed = await prisma.suppressionEntry.findFirst({
+        where: { businessLineId, googlePlaceId: place.placeId },
+      });
+      if (suppressed) {
+        this.logger.log(`[discovery] skip "${place.name}" — on suppression list`);
+        continue;
+      }
+
+      const business =
+        existingBusiness ??
+        (await prisma.business.create({
+          data: {
+            businessLineId,
+            googlePlaceId: place.placeId,
+            name: place.name,
+            category: place.category,
+            address: place.address,
+            phone: place.phone,
+            website: place.website,
+            rating: place.rating,
+            reviewCount: place.reviewCount,
+            source: 'google_places',
+          },
+        }));
+
+      const lead = await prisma.lead.create({
+        data: { businessLineId, businessId: business.id, productId, channel: 'email', status: 'discovered' },
+      });
+
+      created += 1;
+      await updateBatchStats(batchId, (stats) => {
+        stats.discovered += 1;
+      });
+      await this.enrichmentQueue.add('enrich', { batchId, leadId: lead.id, businessLineId });
+    }
+
+    await updateBatchStats(batchId, (stats) => {
+      stats.totalLeads = created;
+      stats.status = created > 0 ? 'enriching' : 'complete';
+    });
+
+    this.logger.log(`[discovery] batch ${batchId}: created ${created}/${sizeRequested} leads from ${places.length} results`);
+    return { leadsCreated: created };
   }
 }

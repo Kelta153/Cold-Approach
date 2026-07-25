@@ -16,6 +16,7 @@ import { RepliesModule } from './modules/replies/replies.module';
 import { SendingModule } from './modules/sending/sending.module';
 import { SuppressionModule } from './modules/suppression/suppression.module';
 import { TargetingModule } from './modules/targeting/targeting.module';
+import { TemplatesModule } from './modules/templates/templates.module';
 import { QueuesModule } from './queues/queues.module';
 
 @Module({
@@ -28,6 +29,7 @@ import { QueuesModule } from './queues/queues.module';
     BusinessLinesModule,
     CatalogueModule,
     TargetingModule,
+    TemplatesModule,
     DiscoveryModule,
     EnrichmentModule,
     DraftingModule,

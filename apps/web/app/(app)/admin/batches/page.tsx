@@ -2,47 +2,142 @@
 
 import { useEffect, useState } from 'react';
 import type { BatchDto } from '@outreach-engine/types';
-import { getBatches } from '../../../../lib/data/admin';
-import { batchStats as batchStatsFixture } from '../../../../lib/mock-data';
+import {
+  getBatches,
+  getProductOptions,
+  getTargetingProfileOptions,
+  runBatch,
+  type ProductOption,
+  type TargetingProfileOption,
+} from '../../../../lib/data/batches';
 import { statusBadge } from '../../../../lib/badges';
 import { useAppState } from '../../../../lib/state/app-state';
 import { Badge } from '../../../../components/Badge';
 
+const field = 'flex flex-col gap-1.5';
+const labelCls = 'text-xs font-medium text-label';
+const inputCls = 'rounded-control border border-border3 bg-bg px-2.5 py-2 text-[13px] text-text';
+
+const IN_PROGRESS: BatchDto['status'][] = ['discovering', 'enriching', 'drafting'];
+
 export default function AdminBatchesPage() {
-  const { adminLineId } = useAppState();
+  const { adminLineId, showToast } = useAppState();
   const [rows, setRows] = useState<BatchDto[]>([]);
+  const [profiles, setProfiles] = useState<TargetingProfileOption[]>([]);
+  const [products, setProducts] = useState<ProductOption[]>([]);
+
+  const [profileId, setProfileId] = useState('');
+  const [productId, setProductId] = useState('');
+  const [geography, setGeography] = useState('');
+  const [sizeRequested, setSizeRequested] = useState(10);
+  const [running, setRunning] = useState(false);
+
+  const refreshBatches = () => {
+    if (!adminLineId) return;
+    getBatches(adminLineId).then(setRows);
+  };
 
   useEffect(() => {
-    getBatches(adminLineId).then(({ rows }) => setRows(rows));
+    if (!adminLineId) return;
+    refreshBatches();
+    getTargetingProfileOptions(adminLineId).then((ps) => {
+      setProfiles(ps);
+      setProfileId((prev) => prev || ps.find((p) => p.active)?.id || ps[0]?.id || '');
+    });
+    getProductOptions(adminLineId).then((ps) => {
+      setProducts(ps);
+      setProductId((prev) => prev || ps.find((p) => p.active)?.id || ps[0]?.id || '');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminLineId]);
+
+  // Poll while anything is still discovering/enriching/drafting so the funnel/status columns
+  // update live without a manual refresh — this is a real, in-flight BullMQ pipeline.
+  useEffect(() => {
+    if (!rows.some((r) => IN_PROGRESS.includes(r.status))) return;
+    const timer = setInterval(refreshBatches, 3000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, adminLineId]);
+
+  const handleRun = async () => {
+    if (!profileId || !productId || !geography.trim()) {
+      showToast('Pick a targeting profile, a product, and a geography.');
+      return;
+    }
+    setRunning(true);
+    try {
+      await runBatch(adminLineId, { profileId, productId, geography: geography.trim(), sizeRequested });
+      showToast('Batch started — discovery is running against Google Places.');
+      setGeography('');
+      refreshBatches();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to start batch.');
+    } finally {
+      setRunning(false);
+    }
+  };
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="p-[22px] oe:p-7">
-        <div className="mb-4 text-[16px] font-semibold">Batch history</div>
-
-        <div className="mb-[22px] grid grid-cols-2 gap-3 oe:grid-cols-4">
-          {batchStatsFixture.map((st) => (
-            <div key={st.label} className="rounded-[7px] border border-border2 bg-surface p-3.5">
-              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">{st.label}</div>
-              <div className="font-mono text-[22px] font-semibold tracking-tight">{st.value}</div>
-              <div className="mt-0.5 text-[11.5px] text-text-secondary">{st.sub}</div>
-            </div>
-          ))}
+        <div className="mb-4 text-[16px] font-semibold">Run a batch</div>
+        <div className="mb-[22px] grid grid-cols-1 gap-3.5 rounded-[7px] border border-border2 bg-surface p-4 oe:grid-cols-[1fr_1fr_1fr_90px_auto]">
+          <div className={field}>
+            <label className={labelCls}>Targeting profile</label>
+            <select value={profileId} onChange={(e) => setProfileId(e.target.value)} className={inputCls}>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className={field}>
+            <label className={labelCls}>Product</label>
+            <select value={productId} onChange={(e) => setProductId(e.target.value)} className={inputCls}>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className={field}>
+            <label className={labelCls}>Geography</label>
+            <input value={geography} onChange={(e) => setGeography(e.target.value)} placeholder="e.g. Bristol, UK" className={inputCls} />
+          </div>
+          <div className={field}>
+            <label className={labelCls}>Size</label>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={sizeRequested}
+              onChange={(e) => setSizeRequested(Number(e.target.value))}
+              className={inputCls}
+            />
+          </div>
+          <div className="flex items-end">
+            <button
+              onClick={handleRun}
+              disabled={running || profiles.length === 0 || products.length === 0}
+              className="w-full rounded-control bg-accent px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50 oe:w-auto"
+            >
+              {running ? 'Starting…' : 'Run batch'}
+            </button>
+          </div>
         </div>
 
+        <div className="mb-4 text-[16px] font-semibold">Batch history</div>
         <div className="overflow-x-auto rounded-[7px] border border-border2">
-          <div className="grid min-w-[880px] grid-cols-[130px_110px_1fr_280px_100px_90px] gap-3 border-b border-border2 bg-surface px-3.5 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">
+          <div className="grid min-w-[880px] grid-cols-[130px_110px_1fr_280px_140px_110px] gap-3 border-b border-border2 bg-surface px-3.5 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">
             <span>Batch</span>
             <span>Date</span>
             <span>Targeting profile</span>
             <span>Funnel · disc → enr → draft → sent</span>
-            <span>API spend</span>
+            <span>API calls</span>
             <span>Status</span>
           </div>
           {rows.map((b) => (
-            <div key={b.id} className="grid min-w-[880px] grid-cols-[130px_110px_1fr_280px_100px_90px] items-center gap-3 border-b border-border px-3.5 py-3 text-[13px]">
-              <span className="font-mono text-[11.5px] text-link2">{b.id}</span>
+            <div key={b.id} className="grid min-w-[880px] grid-cols-[130px_110px_1fr_280px_140px_110px] items-center gap-3 border-b border-border px-3.5 py-3 text-[13px]">
+              <span className="font-mono text-[11.5px] text-link2">{b.id.slice(0, 8)}</span>
               <span className="text-[12.5px] text-text-secondary">{b.date}</span>
               <span className="font-medium">{b.profile}</span>
               <span className="font-mono text-xs text-body">{b.funnelLabel}</span>
@@ -50,6 +145,9 @@ export default function AdminBatchesPage() {
               <Badge spec={statusBadge(b.status)} />
             </div>
           ))}
+          {rows.length === 0 && (
+            <div className="px-3.5 py-6 text-center text-[13px] text-text-muted">No batches yet — run one above.</div>
+          )}
         </div>
       </div>
     </div>

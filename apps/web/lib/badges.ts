@@ -92,6 +92,8 @@ const STATUS_COLOR: Record<string, string> = {
   active: '#3fce8a',
   paused: '#e8a33d',
   complete: '#3fce8a',
+  discovering: '#8a90a1',
+  enriching: '#e8a33d',
   drafting: '#6ea8fe',
   failed: '#f0637a',
 };

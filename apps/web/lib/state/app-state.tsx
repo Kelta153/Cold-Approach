@@ -14,7 +14,7 @@ import {
   skipReply,
   skipReviewLead,
 } from '../data/actions';
-import { getLines, type LineFixture } from '../data/lines';
+import { getLines, updateBusinessLine, type LineFixture } from '../data/lines';
 import type { DoneStatus } from '../badges';
 import { authClient } from '../auth-client';
 
@@ -84,9 +84,9 @@ interface AppStateValue {
   adminTab: 'catalogue' | 'templates' | 'targeting';
   setAdminTab: (tab: 'catalogue' | 'templates' | 'targeting') => void;
   warm: Record<string, boolean>;
-  toggleWarm: (lineId: string) => void;
+  toggleWarm: (lineId: string) => Promise<void>;
   channels: Record<string, { email: boolean; ig: boolean }>;
-  toggleChannel: (lineId: string, channel: 'email' | 'ig') => void;
+  toggleChannel: (lineId: string, channel: 'email' | 'ig') => Promise<void>;
   tplId: string;
   setTplId: (id: string) => void;
   tplDrafts: Record<string, DraftEdit>;
@@ -343,16 +343,41 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     setSelection((sel) => ({ ...sel, [queue]: id }));
   }, []);
 
-  const toggleWarm = useCallback((lineId: string) => {
-    setWarm((prev) => ({ ...prev, [lineId]: !prev[lineId] }));
-  }, []);
+  // Real, persisted fields (BusinessLine.warmupComplete / channelsEnabled) — admin-only PATCH,
+  // not local-only demo state. Optimistic update, reconciled with the server response; reverted
+  // with a toast on failure (e.g. an operator hitting the admin-only route).
+  const toggleWarm = useCallback(
+    async (lineId: string) => {
+      const next = !warm[lineId];
+      setWarm((prev) => ({ ...prev, [lineId]: next }));
+      try {
+        const updated = await updateBusinessLine(lineId, { warmupComplete: next });
+        setWarm((prev) => ({ ...prev, [lineId]: updated.warmupComplete }));
+      } catch (err) {
+        setWarm((prev) => ({ ...prev, [lineId]: !next }));
+        showToast(err instanceof Error ? err.message : 'Failed to update warm-up status.');
+      }
+    },
+    [warm, showToast],
+  );
 
-  const toggleChannel = useCallback((lineId: string, channel: 'email' | 'ig') => {
-    setChannels((prev) => {
-      const current = prev[lineId] ?? { email: true, ig: false };
-      return { ...prev, [lineId]: { ...current, [channel]: !current[channel] } };
-    });
-  }, []);
+  const toggleChannel = useCallback(
+    async (lineId: string, channel: 'email' | 'ig') => {
+      const current = channels[lineId] ?? { email: true, ig: false };
+      const nextLocal = { ...current, [channel]: !current[channel] };
+      setChannels((prev) => ({ ...prev, [lineId]: nextLocal }));
+      try {
+        const updated = await updateBusinessLine(lineId, {
+          channelsEnabled: { email: nextLocal.email, instagram: nextLocal.ig },
+        });
+        setChannels((prev) => ({ ...prev, [lineId]: { email: updated.channelsEnabled.email, ig: updated.channelsEnabled.instagram } }));
+      } catch (err) {
+        setChannels((prev) => ({ ...prev, [lineId]: current }));
+        showToast(err instanceof Error ? err.message : 'Failed to update channel.');
+      }
+    },
+    [channels, showToast],
+  );
 
   const setTplDraft = useCallback((id: string, patch: DraftEdit) => {
     setTplDrafts((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));

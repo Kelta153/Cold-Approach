@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
+import { DraftingService } from './drafting.service';
 
-/** Stub only, per Phase 1 spec — Claude-backed draft generation (Draft/DmDraft rows) lands in a
- * later phase. This module exists so the tree matches the spec and other modules can import it. */
-@Module({})
+@Module({
+  providers: [DraftingService],
+  exports: [DraftingService],
+})
 export class DraftingModule {}

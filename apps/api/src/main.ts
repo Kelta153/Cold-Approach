@@ -1,3 +1,6 @@
+// Must be the first import — see load-env.ts for why this has to be a side-effect import
+// rather than an inline `config()` call here.
+import './load-env';
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
