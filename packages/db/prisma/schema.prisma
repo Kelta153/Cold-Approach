@@ -320,6 +320,8 @@ model Send {
 
   replies           Reply[]
 
+  @@unique([draftId]) // hard backstop against a double-send race — see SendingService.attemptSend's
+                       // atomic claim for the primary guard; this is defense-in-depth, not the only layer
   @@index([leadId])
   @@map("sends")
 }

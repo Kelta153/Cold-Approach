@@ -8,6 +8,7 @@ import {
   escalateReply,
   markDmSent,
   markReplyHandled,
+  regenerateDraft as regenerateDraftAction,
   rejectDmLead,
   rejectReviewLead,
   skipDmLead,
@@ -74,6 +75,9 @@ interface AppStateValue {
 
   drafts: Record<string, DraftEdit>;
   setDraft: (id: string, patch: DraftEdit) => void;
+  /** Real re-drafting for one lead — replaces the old client-side text mutation. Refreshes the
+   * review queue and re-selects the new draft (a new Draft row, new id) on success. */
+  regenerateDraft: (leadId: string) => Promise<void>;
 
   selection: Record<QueueKey, string | undefined>;
   select: (queue: QueueKey, id: string) => void;
@@ -343,6 +347,21 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     setSelection((sel) => ({ ...sel, [queue]: id }));
   }, []);
 
+  const regenerateDraft = useCallback(
+    async (leadId: string) => {
+      try {
+        const { draftId } = await regenerateDraftAction(leadId, activeLineId);
+        const refreshed = await getReviewQueue(activeLineId);
+        setReviewItems(refreshed);
+        select('review', draftId);
+        showToast('Draft regenerated');
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Failed to regenerate draft.');
+      }
+    },
+    [activeLineId, select, showToast],
+  );
+
   // Real, persisted fields (BusinessLine.warmupComplete / channelsEnabled) — admin-only PATCH,
   // not local-only demo state. Optimistic update, reconciled with the server response; reverted
   // with a toast on failure (e.g. an operator hitting the admin-only route).
@@ -410,6 +429,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       resetQueues,
       drafts,
       setDraft,
+      regenerateDraft,
       selection,
       select,
       adminLineId,
@@ -428,7 +448,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [
       role, userEmail, authLoading, signIn, signOut, theme, toggleTheme, lines, activeLineId, switchLine, isLoadingLine,
       lineMenuOpen, toast, showToast, reviewItems, replyItems, dmItems, decisions, decide, isDecided, resetQueues,
-      drafts, setDraft, selection, select, adminLineId, adminTab, warm, toggleWarm, channels, toggleChannel,
+      drafts, setDraft, regenerateDraft, selection, select, adminLineId, adminTab, warm, toggleWarm, channels, toggleChannel,
       tplId, tplDrafts, setTplDraft,
     ],
   );

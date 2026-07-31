@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // fighting state left over from a previous test.
 async function freshLogger() {
   vi.resetModules();
-  const { logRedisErrorOnce } = await import('./redis-error-logger');
+  const { logRedisErrorOnce } = await import('./redis-error-logger.js');
   return logRedisErrorOnce;
 }
 

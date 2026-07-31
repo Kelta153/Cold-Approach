@@ -3,6 +3,7 @@ import { Module, Logger } from '@nestjs/common';
 import IORedis from 'ioredis';
 import { EnrichmentModule } from '../modules/enrichment/enrichment.module';
 import { DraftingModule } from '../modules/drafting/drafting.module';
+import { NotificationsModule } from '../modules/notifications/notifications.module';
 import { DiscoveryProcessor } from './discovery.processor';
 import { DraftingProcessor } from './drafting.processor';
 import { EnrichmentProcessor } from './enrichment.processor';
@@ -57,6 +58,7 @@ const defaultJobOptions = {
     ),
     EnrichmentModule,
     DraftingModule,
+    NotificationsModule,
   ],
   providers: [DiscoveryProcessor, EnrichmentProcessor, DraftingProcessor, { provide: REDIS_CONNECTION, useValue: connection }],
   exports: [BullModule, REDIS_CONNECTION],

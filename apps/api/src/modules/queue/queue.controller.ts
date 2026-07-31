@@ -43,6 +43,11 @@ export class QueueController {
     return this.queueService.rejectLead(leadId);
   }
 
+  @Post('review/:leadId/regenerate')
+  regenerateReview(@Param('leadId') leadId: string) {
+    return this.queueService.regenerateDraft(leadId);
+  }
+
   @Post('dm/:leadId/skip')
   skipDm(@Param('leadId') leadId: string) {
     return this.queueService.skipLead(leadId);

@@ -20,6 +20,13 @@ export async function rejectReviewLead(leadId: string, businessLineId: string): 
   await apiFetch(`/queue/review/${leadId}/reject`, { method: 'POST', businessLineId });
 }
 
+/** Real re-drafting — calls the same LLM-backed pipeline a fresh batch uses, for this one lead
+ * only. Returns the new Draft's id; the caller re-fetches the queue and re-selects it, since the
+ * old draft id is no longer "latest version" and won't be returned by GET /queue/review. */
+export async function regenerateDraft(leadId: string, businessLineId: string): Promise<{ draftId: string }> {
+  return apiFetch<{ draftId: string }>(`/queue/review/${leadId}/regenerate`, { method: 'POST', businessLineId });
+}
+
 export async function skipDmLead(leadId: string, businessLineId: string): Promise<void> {
   await apiFetch(`/queue/dm/${leadId}/skip`, { method: 'POST', businessLineId });
 }

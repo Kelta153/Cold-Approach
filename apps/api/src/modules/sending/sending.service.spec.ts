@@ -6,12 +6,18 @@ import { SendingService } from './sending.service';
 const findUniqueMock = vi.fn();
 const sendCreateMock = vi.fn();
 const leadUpdateMock = vi.fn();
+const leadUpdateManyMock = vi.fn();
+const leadFindUniqueMock = vi.fn();
 
 vi.mock('@outreach-engine/db', () => ({
   prisma: {
     draft: { findUnique: (...args: unknown[]) => findUniqueMock(...args) },
     send: { create: (...args: unknown[]) => sendCreateMock(...args) },
-    lead: { update: (...args: unknown[]) => leadUpdateMock(...args) },
+    lead: {
+      update: (...args: unknown[]) => leadUpdateMock(...args),
+      updateMany: (...args: unknown[]) => leadUpdateManyMock(...args),
+      findUnique: (...args: unknown[]) => leadFindUniqueMock(...args),
+    },
   },
 }));
 
@@ -38,7 +44,12 @@ describe('SendingService.attemptSend', () => {
     findUniqueMock.mockReset();
     sendCreateMock.mockReset();
     leadUpdateMock.mockReset();
+    leadUpdateManyMock.mockReset();
+    leadFindUniqueMock.mockReset();
     findUniqueMock.mockResolvedValue(DRAFT);
+    // Default: the atomic claim always succeeds (lead was in 'drafted') — individual tests below
+    // override this to exercise the "someone else already handled it" path.
+    leadUpdateManyMock.mockResolvedValue({ count: 1 });
     delete process.env.INSTANTLY_API_KEY;
   });
 
@@ -108,6 +119,44 @@ describe('SendingService.attemptSend', () => {
 
     await sending.attemptSend('draft_1', 'user_1', 'webapp');
 
+    expect(sendCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('releases the claim (reverts the lead back to drafted) when the chokepoint blocks the send', async () => {
+    const blockedResult: SendCheckResult = { allowed: false, blockedReasons: ['Sending inbox has not completed warm-up.'] };
+    const sending = new SendingService(makeComplianceService(blockedResult));
+
+    await sending.attemptSend('draft_1', 'user_1', 'webapp');
+
+    expect(leadUpdateManyMock).toHaveBeenCalledWith({ where: { id: 'lead_1', status: 'drafted' }, data: { status: 'queued' } });
+    expect(leadUpdateManyMock).toHaveBeenCalledWith({ where: { id: 'lead_1', status: 'queued' }, data: { status: 'drafted' } });
+  });
+});
+
+describe('SendingService.attemptSend — concurrent-decision race', () => {
+  beforeEach(() => {
+    findUniqueMock.mockReset();
+    sendCreateMock.mockReset();
+    leadUpdateMock.mockReset();
+    leadUpdateManyMock.mockReset();
+    leadFindUniqueMock.mockReset();
+    findUniqueMock.mockResolvedValue(DRAFT);
+    delete process.env.INSTANTLY_API_KEY;
+  });
+
+  it('blocks the send and never touches the compliance chokepoint when another decision already claimed the lead', async () => {
+    leadUpdateManyMock.mockResolvedValue({ count: 0 });
+    leadFindUniqueMock.mockResolvedValue({
+      status: 'sent',
+      sends: [{ approvedVia: 'telegram' }],
+    });
+    const compliance = makeComplianceService({ allowed: true, blockedReasons: [] });
+    const sending = new SendingService(compliance);
+
+    const result = await sending.attemptSend('draft_1', 'user_2', 'webapp');
+
+    expect(result).toEqual({ allowed: false, blockedReasons: ['Already sent (via telegram).'] });
+    expect(compliance.runChokepoint).not.toHaveBeenCalled();
     expect(sendCreateMock).not.toHaveBeenCalled();
   });
 });

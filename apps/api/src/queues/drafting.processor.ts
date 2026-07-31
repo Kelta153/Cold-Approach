@@ -3,7 +3,9 @@ import { Inject, Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { prisma } from '@outreach-engine/db';
 import { DraftingService } from '../modules/drafting/drafting.service';
+import { loadDraftGroundingInput } from '../modules/drafting/load-draft-input';
 import { updateBatchStats } from '../modules/discovery/batch-stats';
+import { TelegramService } from '../modules/notifications/telegram.service';
 import { QUEUE_NAMES } from './queue-names';
 import type { DraftingJobPayload } from './job-payloads';
 import { logRedisErrorOnce } from './redis-error-logger';
@@ -18,7 +20,10 @@ import { logRedisErrorOnce } from './redis-error-logger';
 export class DraftingProcessor extends WorkerHost {
   private readonly logger = new Logger(DraftingProcessor.name);
 
-  constructor(@Inject(DraftingService) private readonly draftingService: DraftingService) {
+  constructor(
+    @Inject(DraftingService) private readonly draftingService: DraftingService,
+    @Inject(TelegramService) private readonly telegramService: TelegramService,
+  ) {
     super();
   }
 
@@ -29,37 +34,10 @@ export class DraftingProcessor extends WorkerHost {
 
   async process(job: Job<DraftingJobPayload>): Promise<{ draftId: string }> {
     const { batchId, leadId } = job.data;
-    const lead = await prisma.lead.findUniqueOrThrow({
-      where: { id: leadId },
-      include: { business: true, product: true, businessLine: true },
-    });
-
-    const template = await prisma.template.findFirst({
-      where: { businessLineId: lead.businessLineId, type: 'email_outbound', active: true },
-      orderBy: { createdAt: 'desc' },
-    });
 
     try {
-      const draft = await this.draftingService.draftEmail({
-        business: {
-          name: lead.business.name,
-          category: lead.business.category,
-          address: lead.business.address,
-          website: lead.business.website,
-        },
-        product: {
-          name: lead.product.name,
-          description: lead.product.description,
-          keyFeatures: lead.product.keyFeatures,
-          link: lead.product.link,
-        },
-        businessLine: {
-          senderName: lead.businessLine.senderName,
-          companyLegalName: lead.businessLine.companyLegalName,
-          postalAddress: lead.businessLine.postalAddress,
-        },
-        templateHint: template?.bodySkeleton ?? null,
-      });
+      const input = await loadDraftGroundingInput(leadId);
+      const draft = await this.draftingService.draftEmail(input);
 
       const created = await prisma.draft.create({
         data: {
@@ -80,6 +58,21 @@ export class DraftingProcessor extends WorkerHost {
       });
 
       this.logger.log(`[drafting] lead ${leadId}: created draft ${created.id}`);
+
+      // Best-effort — a Telegram hiccup shouldn't fail (and retry) an otherwise-successful
+      // drafting job. The draft already exists and is visible in the Review queue regardless.
+      try {
+        await this.telegramService.notifyDraftReady({
+          draftId: created.id,
+          leadId,
+          company: input.business.name,
+          subject: draft.subject,
+          body: draft.body,
+        });
+      } catch (notifyErr) {
+        this.logger.error(`[drafting] lead ${leadId}: draft ${created.id} created, but notifying Telegram failed: ${(notifyErr as Error).message}`);
+      }
+
       return { draftId: created.id };
     } catch (err) {
       this.logger.error(`[drafting] lead ${leadId} failed: ${(err as Error).message}`);

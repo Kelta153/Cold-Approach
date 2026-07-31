@@ -8,15 +8,8 @@ import { ReviewContextPane } from '../../../components/queue/ReviewContextPane';
 import { ReviewEditor } from '../../../components/queue/ReviewEditor';
 import { ShortcutBar } from '../../../components/ShortcutBar';
 
-function regenerateBody(body: string): string {
-  const withGreeting = body.replace('Hi ', 'Hello ');
-  const paragraphs = withGreeting.split('\n\n');
-  if (paragraphs.length > 1) paragraphs[1] += ' (Regenerated variant — tightened hook.)';
-  return paragraphs.join('\n\n');
-}
-
 export default function ReviewPage() {
-  const { reviewItems, isLoadingLine, selection, select, decide, isDecided, drafts, setDraft, showToast } = useAppState();
+  const { reviewItems, isLoadingLine, selection, select, decide, isDecided, drafts, setDraft, regenerateDraft, showToast } = useAppState();
   const [mobileDetail, setMobileDetail] = useState(false);
 
   const pending = reviewItems.filter((it) => !isDecided('review', it.id));
@@ -33,10 +26,8 @@ export default function ReviewPage() {
 
   const onRegen = useCallback(() => {
     if (!selectedItem) return;
-    const currentBody = drafts[selectedItem.id]?.body ?? selectedItem.body;
-    setDraft(selectedItem.id, { subject: drafts[selectedItem.id]?.subject ?? selectedItem.subject, body: regenerateBody(currentBody) });
-    showToast('Draft regenerated');
-  }, [selectedItem, drafts, setDraft, showToast]);
+    regenerateDraft(selectedItem.leadId);
+  }, [selectedItem, regenerateDraft]);
 
   useQueueKeyboard({
     pendingIds: pending.map((it) => it.id),

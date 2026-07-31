@@ -1,9 +1,12 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { prisma } from '@outreach-engine/db';
 import type { DmQueueItemDto, ReplyQueueItemDto, ReviewQueueItemDto, SendCheckContext } from '@outreach-engine/types';
 import { pickSendingInbox } from '../../common/pick-sending-inbox';
 import { BusinessLineContext } from '../../common/business-line-scope/business-line-context';
+import { claimLeadForDecision } from '../../common/claim-lead';
+import { performReject, performRegenerate } from '../../common/lead-actions';
 import { ComplianceService } from '../compliance/compliance.service';
+import { DraftingService } from '../drafting/drafting.service';
 
 /**
  * Read side of the operator queues, and the plain (non-compliance-gated) lead-state actions —
@@ -15,6 +18,7 @@ export class QueueService {
   constructor(
     @Inject(BusinessLineContext) private readonly businessLineContext: BusinessLineContext,
     @Inject(ComplianceService) private readonly compliance: ComplianceService,
+    @Inject(DraftingService) private readonly draftingService: DraftingService,
   ) {}
 
   async getReviewQueue(): Promise<ReviewQueueItemDto[]> {
@@ -130,28 +134,40 @@ export class QueueService {
       });
   }
 
+  /** Skip/Reject compete for the same lead with Approve and Regenerate (webapp *and* Telegram can
+   * all act on the same draft) — `claimLeadForDecision` is the single enforcement point for all
+   * of them; see `common/claim-lead.ts` and `SendingService.attemptSend`'s equivalent use. */
   async skipLead(leadId: string): Promise<void> {
     await this.assertLeadInScope(leadId);
+    const claim = await claimLeadForDecision(leadId);
+    if (!claim.claimed) {
+      throw new ConflictException(claim.alreadyHandledReason);
+    }
     await this.businessLineContext.db.lead.update({ where: { id: leadId }, data: { status: 'skipped' } });
   }
 
+  /** The actual reject logic (claim + status + suppression) lives in `performReject`
+   * (`common/lead-actions.ts`), shared with `TelegramService` — this method's own job is just the
+   * webapp-specific tenant-isolation check before delegating. */
   async rejectLead(leadId: string): Promise<void> {
-    const lead = await this.assertLeadInScope(leadId);
-    const businessLineId = this.businessLineContext.getBusinessLineId();
+    await this.assertLeadInScope(leadId);
+    const result = await performReject(leadId);
+    if (!result.ok) {
+      throw new ConflictException(result.reason);
+    }
+  }
 
-    await prisma.$transaction([
-      prisma.lead.update({ where: { id: leadId }, data: { status: 'rejected' } }),
-      prisma.suppressionEntry.create({
-        data: {
-          businessLineId,
-          email: lead.email ?? undefined,
-          domain: lead.email?.split('@')[1] ?? undefined,
-          googlePlaceId: lead.business.googlePlaceId ?? undefined,
-          instagramHandle: lead.business.instagramHandle ?? undefined,
-          reason: 'manual_reject',
-        },
-      }),
-    ]);
+  /** Real re-drafting for one already-discovered lead — see `performRegenerate`
+   * (`common/lead-actions.ts`, shared with `TelegramService`) for the actual logic. The review
+   * queue already reads `drafts` ordered by `version desc` (see `getReviewQueue` above), so a
+   * newly-regenerated draft is picked up with no read-side change. */
+  async regenerateDraft(leadId: string): Promise<{ draftId: string }> {
+    await this.assertLeadInScope(leadId);
+    const result = await performRegenerate(leadId, this.draftingService);
+    if (!result.ok) {
+      throw new ConflictException(result.reason);
+    }
+    return { draftId: result.draftId! };
   }
 
   async markDmSent(leadId: string, operatorId: string): Promise<void> {
