@@ -10,6 +10,7 @@ import {
   type ProductOption,
   type TargetingProfileOption,
 } from '../../../../lib/data/batches';
+import { getHealth, type HealthStatus } from '../../../../lib/data/health';
 import { statusBadge } from '../../../../lib/badges';
 import { useAppState } from '../../../../lib/state/app-state';
 import { Badge } from '../../../../components/Badge';
@@ -20,11 +21,19 @@ const inputCls = 'rounded-control border border-border3 bg-bg px-2.5 py-2 text-[
 
 const IN_PROGRESS: BatchDto['status'][] = ['discovering', 'enriching', 'drafting'];
 
+// This is the one screen an admin would actually check when a batch stops progressing, so it's
+// the natural place for a visible Redis-health signal. 60s keeps the extra load this polling adds
+// on the real /health -> Redis PING small and predictable (~1,440 extra Redis commands/day if
+// left open all day) while still surfacing an outage well before anyone would think to look at
+// server logs.
+const HEALTH_POLL_MS = 60_000;
+
 export default function AdminBatchesPage() {
   const { adminLineId, showToast } = useAppState();
   const [rows, setRows] = useState<BatchDto[]>([]);
   const [profiles, setProfiles] = useState<TargetingProfileOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
+  const [health, setHealth] = useState<HealthStatus | null>(null);
 
   const [profileId, setProfileId] = useState('');
   const [productId, setProductId] = useState('');
@@ -60,6 +69,16 @@ export default function AdminBatchesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, adminLineId]);
 
+  // Redis can stay "connected" (so nothing else here would notice) while every command it's
+  // asked to run is rejected — e.g. Upstash's monthly command quota being exhausted. Without this,
+  // a triggered batch just silently never progresses past "discovering" with no visible signal.
+  useEffect(() => {
+    const check = () => getHealth().then(setHealth).catch(() => setHealth({ status: 'degraded', redis: { ok: false, error: 'Could not reach the API.' } }));
+    check();
+    const timer = setInterval(check, HEALTH_POLL_MS);
+    return () => clearInterval(timer);
+  }, []);
+
   const handleRun = async () => {
     if (!profileId || !productId || !geography.trim()) {
       showToast('Pick a targeting profile, a product, and a geography.');
@@ -81,6 +100,20 @@ export default function AdminBatchesPage() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="p-[22px] oe:p-7">
+        {health && !health.redis.ok && (
+          <div
+            className="mb-[22px] flex items-start gap-2.5 rounded-md p-[11px_14px]"
+            style={{ background: 'rgba(232,163,61,.08)', border: '1px solid rgba(232,163,61,.35)' }}
+          >
+            <span className="text-[13px] leading-[1.4] text-amber">◆</span>
+            <div className="text-[12.5px] text-amber-soft">
+              <b className="font-semibold text-amber">Redis is unavailable — triggered batches will not progress.</b>
+              <div className="mt-1">{health.redis.error ?? 'Redis commands are currently failing.'}</div>
+              <div className="mt-1">Batches will still create a row here, but discovery/enrichment/drafting won&apos;t run until this clears.</div>
+            </div>
+          </div>
+        )}
+
         <div className="mb-4 text-[16px] font-semibold">Run a batch</div>
         <div className="mb-[22px] grid grid-cols-1 gap-3.5 rounded-[7px] border border-border2 bg-surface p-4 oe:grid-cols-[1fr_1fr_1fr_90px_auto]">
           <div className={field}>

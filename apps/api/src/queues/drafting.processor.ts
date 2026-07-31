@@ -1,4 +1,4 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { prisma } from '@outreach-engine/db';
@@ -6,16 +6,25 @@ import { DraftingService } from '../modules/drafting/drafting.service';
 import { updateBatchStats } from '../modules/discovery/batch-stats';
 import { QUEUE_NAMES } from './queue-names';
 import type { DraftingJobPayload } from './job-payloads';
+import { logRedisErrorOnce } from './redis-error-logger';
 
 /** Real Claude-backed draft generation. Loads the lead's business, the batch's product, and the
  * business line (for sender identity + compliance footer), calls `DraftingService`, and writes
- * the resulting `Draft` row — the same row shape the review queue already reads. */
-@Processor(QUEUE_NAMES.drafting)
+ * the resulting `Draft` row — the same row shape the review queue already reads.
+ *
+ * `drainDelay`/`stalledInterval` raised for the same reason as `discovery.processor.ts` — see
+ * that file's comment. */
+@Processor(QUEUE_NAMES.drafting, { drainDelay: 120, stalledInterval: 300_000 })
 export class DraftingProcessor extends WorkerHost {
   private readonly logger = new Logger(DraftingProcessor.name);
 
   constructor(@Inject(DraftingService) private readonly draftingService: DraftingService) {
     super();
+  }
+
+  @OnWorkerEvent('error')
+  onError(err: Error) {
+    logRedisErrorOnce(this.logger, err);
   }
 
   async process(job: Job<DraftingJobPayload>): Promise<{ draftId: string }> {

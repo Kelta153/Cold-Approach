@@ -1,4 +1,4 @@
-import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
+import { InjectQueue, OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
 import { prisma, type EmailStatus } from '@outreach-engine/db';
@@ -7,6 +7,7 @@ import { EnrichmentService } from '../modules/enrichment/enrichment.service';
 import { updateBatchStats } from '../modules/discovery/batch-stats';
 import { QUEUE_NAMES } from './queue-names';
 import type { DraftingJobPayload, EnrichmentJobPayload } from './job-payloads';
+import { logRedisErrorOnce } from './redis-error-logger';
 
 const VERIFY_TO_EMAIL_STATUS: Record<VerifyStatus, EmailStatus> = {
   valid: 'valid',
@@ -18,8 +19,11 @@ const VERIFY_TO_EMAIL_STATUS: Record<VerifyStatus, EmailStatus> = {
  * `@outreach-engine/enrichment`'s adapters (free website-scrape/MX-record path by default; Hunter
  * when `ENRICHMENT_FALLBACK=hunter`), persists the result on the `Lead`, then hands off to
  * drafting regardless of whether an email was found — a failed find is still worth a draft, the
- * compliance chokepoint is what actually gates sending later. */
-@Processor(QUEUE_NAMES.enrichment)
+ * compliance chokepoint is what actually gates sending later.
+ *
+ * `drainDelay`/`stalledInterval` raised for the same reason as `discovery.processor.ts` — see
+ * that file's comment. */
+@Processor(QUEUE_NAMES.enrichment, { drainDelay: 120, stalledInterval: 300_000 })
 export class EnrichmentProcessor extends WorkerHost {
   private readonly logger = new Logger(EnrichmentProcessor.name);
 
@@ -28,6 +32,11 @@ export class EnrichmentProcessor extends WorkerHost {
     @InjectQueue(QUEUE_NAMES.drafting) private readonly draftingQueue: Queue<DraftingJobPayload>,
   ) {
     super();
+  }
+
+  @OnWorkerEvent('error')
+  onError(err: Error) {
+    logRedisErrorOnce(this.logger, err);
   }
 
   async process(job: Job<EnrichmentJobPayload>): Promise<{ email: string | null }> {

@@ -28,10 +28,26 @@ function resolveAuthSecret(): string {
 }
 
 async function buildAuth() {
-  const [{ betterAuth }, { prismaAdapter }] = await Promise.all([
+  const [{ betterAuth }, { prismaAdapter }, { admin }, { createAccessControl }] = await Promise.all([
     import('better-auth'),
     import('@better-auth/prisma-adapter'),
+    import('better-auth/plugins'),
+    import('better-auth/plugins/access'),
   ]);
+
+  // The `admin` plugin's own built-in roles are named "admin"/"user" — its role literal type
+  // (and runtime permission lookup) is derived from whatever `roles` map is passed here, not from
+  // `defaultRole` alone. Redeclaring the plugin's own default statements/permissions verbatim
+  // (see `better-auth/dist/plugins/admin/access/statement.mjs`) under our own role names
+  // (`admin`/`operator`, matching `UserRole`) so both the TypeScript types and `hasPermission`
+  // recognize `'operator'` instead of the built-in `'user'`.
+  const statement = {
+    user: ['create', 'list', 'set-role', 'ban', 'impersonate', 'delete', 'set-password', 'set-email', 'get', 'update'],
+    session: ['list', 'revoke', 'delete'],
+  } as const;
+  const accessControl = createAccessControl(statement);
+  const adminRole = accessControl.newRole({ user: [...statement.user], session: [...statement.session] });
+  const operatorRole = accessControl.newRole({ user: [], session: [] });
 
   // BetterAuth owns `User`/`Session`/`Account`/`Verification` via its Prisma adapter, pointed at
   // the same Postgres database as every other domain model. `User` is extended (not replaced)
@@ -56,17 +72,24 @@ async function buildAuth() {
           defaultValue: 'operator',
           // Not settable from the public sign-up payload — promoting a user to `admin` is an
           // out-of-band operation in this phase, there is no self-serve admin escalation route.
+          // (The `admin` plugin's own `createUser`/`setRole` endpoints are a separate,
+          // permission-gated path and are unaffected by this restriction — see users.service.ts.)
           input: false,
         },
       },
     },
+    // Powers apps/api's admin-only `/users` module (users.service.ts) — `createUser`,
+    // `setUserPassword`, `removeUser`. `adminRoles` is left at its default (["admin"]), which
+    // already matches our `UserRole.admin` with no further config.
+    plugins: [
+      admin({
+        defaultRole: 'operator',
+        ac: accessControl,
+        roles: { admin: adminRole, operator: operatorRole },
+      }),
+    ],
   });
 }
-
-/** Derived directly from `buildAuth`'s own inferred return type (rather than independently
- * instantiating `betterAuth`'s generic elsewhere), so it can never structurally diverge from
- * what `buildAuth` actually returns. */
-export type Auth = Awaited<ReturnType<typeof buildAuth>>;
 
 let authPromise: ReturnType<typeof buildAuth> | undefined;
 let nodeIntegrationPromise: Promise<NodeIntegrationModule> | undefined;

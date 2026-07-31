@@ -57,7 +57,7 @@ export function ReviewList({
             <div className="mb-1 text-[13.5px] font-semibold">Queue clear</div>
             <div className="mb-4 text-xs text-text-secondary">Every drafted message for this line has been reviewed.</div>
             <button onClick={resetQueues} className="rounded-control border border-border3 bg-raised2 px-3 py-1.5 text-xs text-label hover:text-text">
-              Restore demo items
+              Show reviewed items again
             </button>
           </div>
         )}

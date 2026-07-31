@@ -28,6 +28,10 @@ export async function createTargetingProfile(lineId: string, input: CreateTarget
   });
 }
 
+export async function updateTargetingProfile(lineId: string, id: string, input: CreateTargetingProfileInput): Promise<TargetingProfileRaw> {
+  return apiFetch<TargetingProfileRaw>(`/targeting-profiles/${id}`, { method: 'PATCH', businessLineId: lineId, body: input });
+}
+
 export async function setTargetingProfileActive(lineId: string, id: string, active: boolean): Promise<void> {
   await apiFetch(`/targeting-profiles/${id}`, { method: 'PATCH', businessLineId: lineId, body: { active } });
 }

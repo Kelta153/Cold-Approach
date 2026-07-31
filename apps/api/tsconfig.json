@@ -10,7 +10,15 @@
     "allowSyntheticDefaultImports": true,
     "outDir": "dist",
     "rootDir": "src",
-    "incremental": true
+    "incremental": true,
+    // apps/api is a terminal HTTP server, not a package anything else in the monorepo imports —
+    // nothing consumes its .d.ts output. Overriding the shared base config's `declaration: true`
+    // here avoids TS2742 ("inferred type cannot be named") on better-auth's `admin` plugin, whose
+    // endpoint types structurally reference zod internals through a pnpm store path that isn't
+    // portable enough for TS to auto-write into a declaration file — an emit-only concern that
+    // doesn't matter for a package with no declaration consumers.
+    "declaration": false,
+    "declarationMap": false
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]

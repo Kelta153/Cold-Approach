@@ -445,6 +445,13 @@ model User {
   image          String?
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
+  // Required by BetterAuth's `admin` plugin schema (apps/api/src/modules/auth/auth.config.ts) —
+  // not exercised by our own API surface (no ban/impersonate routes exposed), but the plugin's
+  // Prisma queries expect these columns to exist regardless of which of its endpoints we call.
+  banned         Boolean?  @default(false)
+  banReason      String?   @map("ban_reason")
+  banExpires     DateTime? @map("ban_expires")
+
   sessions       Session[]
   accounts       Account[]
 
@@ -465,6 +472,9 @@ model Session {
   userAgent String?  @map("user_agent")
   userId    String   @map("user_id")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Required by BetterAuth's `admin` plugin schema — see the same note on `User` above.
+  impersonatedBy String? @map("impersonated_by")
 
   @@map("sessions")
 }

@@ -16,6 +16,7 @@ import {
   deleteTargetingProfile,
   getTargetingProfiles,
   setTargetingProfileActive,
+  updateTargetingProfile,
   type TargetingProfileRaw,
 } from '../../../../lib/data/targeting';
 import { createTemplate, deleteTemplate, getTemplates, updateTemplate } from '../../../../lib/data/templates';
@@ -68,6 +69,7 @@ export default function AdminCataloguePage() {
 
   const [showAddItem, setShowAddItem] = useState(false);
   const [showNewProfile, setShowNewProfile] = useState(false);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
 
   const refreshProducts = () => getProducts(adminLineId).then(setProducts);
   const refreshTargeting = () => getTargetingProfiles(adminLineId).then(setTargeting);
@@ -310,9 +312,10 @@ export default function AdminCataloguePage() {
             </div>
 
             {showNewProfile && (
-              <AddTargetingProfileForm
+              <TargetingProfileForm
+                submitLabel="Add profile"
                 onCancel={() => setShowNewProfile(false)}
-                onCreate={async (input) => {
+                onSubmit={async (input) => {
                   try {
                     await createTargetingProfile(adminLineId, input);
                     showToast('Targeting profile created');
@@ -334,37 +337,64 @@ export default function AdminCataloguePage() {
                 <span></span>
               </div>
               {targeting.map((r) => (
-                <div key={r.id} className="grid min-w-[820px] grid-cols-[1fr_1fr_1fr_100px_80px] items-center gap-3 border-b border-border px-3.5 py-2.5 text-[13px]">
-                  <span className="font-semibold">{r.name}</span>
-                  <span className="text-[11.5px] text-text-secondary">{[...r.googlePlaceTypes, ...r.keywords].join(', ') || '—'}</span>
-                  <span className="text-[11.5px] text-text-secondary">{r.exclusions.join(', ') || '—'}</span>
-                  <button
-                    onClick={async () => {
-                      try {
-                        await setTargetingProfileActive(adminLineId, r.id, !r.active);
-                        refreshTargeting();
-                      } catch (err) {
-                        showToast(err instanceof Error ? err.message : 'Failed to update profile.');
-                      }
-                    }}
-                  >
-                    <Badge spec={statusBadge(r.active ? 'active' : 'paused')} />
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!confirm(`Delete "${r.name}"? This can't be undone.`)) return;
-                      try {
-                        await deleteTargetingProfile(adminLineId, r.id);
-                        showToast('Profile deleted');
-                        refreshTargeting();
-                      } catch (err) {
-                        showToast(err instanceof Error ? err.message : 'Failed to delete profile — it may still have batch history.');
-                      }
-                    }}
-                    className="text-[12px] text-text-muted hover:text-red"
-                  >
-                    Delete
-                  </button>
+                <div key={r.id}>
+                  <div className="grid min-w-[820px] grid-cols-[1fr_1fr_1fr_100px_130px] items-center gap-3 border-b border-border px-3.5 py-2.5 text-[13px]">
+                    <span className="font-semibold">{r.name}</span>
+                    <span className="text-[11.5px] text-text-secondary">{[...r.googlePlaceTypes, ...r.keywords].join(', ') || '—'}</span>
+                    <span className="text-[11.5px] text-text-secondary">{r.exclusions.join(', ') || '—'}</span>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await setTargetingProfileActive(adminLineId, r.id, !r.active);
+                          refreshTargeting();
+                        } catch (err) {
+                          showToast(err instanceof Error ? err.message : 'Failed to update profile.');
+                        }
+                      }}
+                    >
+                      <Badge spec={statusBadge(r.active ? 'active' : 'paused')} />
+                    </button>
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        onClick={() => setEditingProfileId((v) => (v === r.id ? null : r.id))}
+                        className="text-[12px] text-text-muted hover:text-text"
+                      >
+                        {editingProfileId === r.id ? 'Cancel' : 'Edit'}
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`Delete "${r.name}"? This can't be undone.`)) return;
+                          try {
+                            await deleteTargetingProfile(adminLineId, r.id);
+                            showToast('Profile deleted');
+                            refreshTargeting();
+                          } catch (err) {
+                            showToast(err instanceof Error ? err.message : 'Failed to delete profile — it may still have batch history.');
+                          }
+                        }}
+                        className="text-[12px] text-text-muted hover:text-red"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                  {editingProfileId === r.id && (
+                    <TargetingProfileForm
+                      initial={r}
+                      submitLabel="Save changes"
+                      onCancel={() => setEditingProfileId(null)}
+                      onSubmit={async (input) => {
+                        try {
+                          await updateTargetingProfile(adminLineId, r.id, input);
+                          showToast('Targeting profile updated');
+                          setEditingProfileId(null);
+                          refreshTargeting();
+                        } catch (err) {
+                          showToast(err instanceof Error ? err.message : 'Failed to update profile.');
+                        }
+                      }}
+                    />
+                  )}
                 </div>
               ))}
               {targeting.length === 0 && (
@@ -447,11 +477,21 @@ function AddProductForm({ onCreate, onCancel }: { onCreate: (input: Parameters<t
   );
 }
 
-function AddTargetingProfileForm({ onCreate, onCancel }: { onCreate: (input: Parameters<typeof createTargetingProfile>[1]) => void; onCancel: () => void }) {
-  const [name, setName] = useState('');
-  const [googlePlaceTypes, setGooglePlaceTypes] = useState('');
-  const [keywords, setKeywords] = useState('');
-  const [exclusions, setExclusions] = useState('');
+function TargetingProfileForm({
+  initial,
+  submitLabel,
+  onSubmit,
+  onCancel,
+}: {
+  initial?: TargetingProfileRaw;
+  submitLabel: string;
+  onSubmit: (input: Parameters<typeof createTargetingProfile>[1]) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initial?.name ?? '');
+  const [googlePlaceTypes, setGooglePlaceTypes] = useState(initial?.googlePlaceTypes.join(', ') ?? '');
+  const [keywords, setKeywords] = useState(initial?.keywords.join(', ') ?? '');
+  const [exclusions, setExclusions] = useState(initial?.exclusions.join(', ') ?? '');
 
   return (
     <div className="mb-4 grid grid-cols-1 gap-3 rounded-[7px] border border-border2 bg-surface p-4 oe:grid-cols-2">
@@ -475,7 +515,7 @@ function AddTargetingProfileForm({ onCreate, onCancel }: { onCreate: (input: Par
         <button onClick={onCancel} className="rounded-control border border-border3 px-3.5 py-1.5 text-[12.5px] text-text">Cancel</button>
         <button
           onClick={() =>
-            onCreate({
+            onSubmit({
               name,
               googlePlaceTypes: parseList(googlePlaceTypes),
               keywords: parseList(keywords),
@@ -485,7 +525,7 @@ function AddTargetingProfileForm({ onCreate, onCancel }: { onCreate: (input: Par
           disabled={!name}
           className="rounded-control border border-action bg-action px-3.5 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-50"
         >
-          Add profile
+          {submitLabel}
         </button>
       </div>
     </div>

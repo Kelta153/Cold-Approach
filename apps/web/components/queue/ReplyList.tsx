@@ -50,7 +50,7 @@ export function ReplyList({
             All replies handled.
             <div className="mt-3">
               <button onClick={resetQueues} className="rounded-control border border-border3 bg-raised2 px-3 py-1.5 text-xs text-label">
-                Restore demo items
+                Show handled items again
               </button>
             </div>
           </div>

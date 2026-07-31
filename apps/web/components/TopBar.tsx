@@ -35,6 +35,7 @@ export function TopBar() {
           { href: '/admin/lines', label: 'Lines' },
           { href: '/admin/catalogue', label: 'Catalogue & Templates' },
           { href: '/admin/batches', label: 'Batches' },
+          { href: '/admin/users', label: 'Users' },
         ]
       : []),
   ];
@@ -42,7 +43,7 @@ export function TopBar() {
   const roleBadge = role === 'admin' ? badge('#e8a33d', 'admin') : badge('#6ea8fe', 'operator');
 
   return (
-    <div className="relative z-40 flex min-h-[52px] flex-none flex-wrap items-center gap-2.5 border-b border-border bg-surface2 px-3 py-2 oe:h-[52px] oe:flex-nowrap oe:gap-4 oe:px-4 oe:py-0">
+    <div className="relative z-40 flex min-h-[52px] flex-none flex-wrap items-center gap-2.5 border-b border-border bg-surface2 px-3 py-2 oe:min-h-[52px] oe:gap-4 oe:px-4 oe:py-1.5">
       <div className="flex items-center gap-2.5">
         <Image src="/logo.jpeg" alt="Outreach Engine" width={26} height={26} className="rounded-[5px] bg-white object-cover" />
       </div>

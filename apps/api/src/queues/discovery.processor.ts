@@ -1,4 +1,4 @@
-import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
+import { InjectQueue, OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
 import { prisma } from '@outreach-engine/db';
@@ -6,17 +6,30 @@ import { searchBusinesses } from '../modules/discovery/google-places.client';
 import { updateBatchStats } from '../modules/discovery/batch-stats';
 import { QUEUE_NAMES } from './queue-names';
 import type { DiscoveryJobPayload, EnrichmentJobPayload } from './job-payloads';
+import { logRedisErrorOnce } from './redis-error-logger';
 
 /** Real Google Places-backed discovery. For each place returned by the text search: skip
  * exclusions, dedupe against an existing `Business.googlePlaceId`, skip anything already
  * suppressed for this business line, then create `Business` + `Lead` rows and hand each new lead
- * off to the `enrichment` queue. */
-@Processor(QUEUE_NAMES.discovery)
+ * off to the `enrichment` queue.
+ *
+ * `drainDelay`/`stalledInterval` are raised well above BullMQ's defaults (5s / 30s) — this queue
+ * is driven by manual, infrequent admin-triggered batches, not continuous throughput, so the
+ * default idle-polling cadence burns Redis commands 24/7 for essentially no benefit (this was the
+ * actual root cause of exhausting Upstash's monthly command quota, not job-processing volume).
+ * Blocking waits still return the instant a real job is enqueued, so this doesn't add latency to
+ * a triggered batch — it only reduces how often an idle worker checks in for nothing. */
+@Processor(QUEUE_NAMES.discovery, { drainDelay: 120, stalledInterval: 300_000 })
 export class DiscoveryProcessor extends WorkerHost {
   private readonly logger = new Logger(DiscoveryProcessor.name);
 
   constructor(@InjectQueue(QUEUE_NAMES.enrichment) private readonly enrichmentQueue: Queue<EnrichmentJobPayload>) {
     super();
+  }
+
+  @OnWorkerEvent('error')
+  onError(err: Error) {
+    logRedisErrorOnce(this.logger, err);
   }
 
   async process(job: Job<DiscoveryJobPayload>): Promise<{ leadsCreated: number }> {
