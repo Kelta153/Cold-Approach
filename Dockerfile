@@ -39,10 +39,13 @@ RUN pnpm turbo run build --filter=@outreach-engine/api
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# --create-home matters: fly.toml's release_command runs `pnpm ...` as this user, and corepack
+# needs a real writable $HOME to resolve/cache the pinned pnpm version (packageManager field) —
+# without it, corepack fails with EACCES trying to mkdir under a home directory that doesn't exist.
 RUN apt-get update && apt-get install -y --no-install-recommends openssl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 1001 nodejs \
-    && useradd --system --uid 1001 --gid nodejs nodejs
+    && useradd --system --create-home --home-dir /home/nodejs --uid 1001 --gid nodejs nodejs
 
 # Copy the whole installed tree (node_modules preserves pnpm's workspace symlinks, which rely on
 # the same relative directory layout being intact) rather than trying to hand-pick prod-only
