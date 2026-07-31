@@ -211,12 +211,26 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    authClient.getSession().then(({ data }) => {
-      if (!cancelled) {
-        applySession(data?.user as { email: string; role?: string } | undefined);
-        setAuthLoading(false);
-      }
-    });
+    authClient
+      .getSession()
+      .then(({ data }) => {
+        if (!cancelled) {
+          applySession(data?.user as { email: string; role?: string } | undefined);
+        }
+      })
+      .catch(() => {
+        // A failed session check (network error, misconfigured API URL, CORS, etc.) must still
+        // resolve authLoading — otherwise the root page's `if (authLoading) return;` never fires
+        // and the app hangs on a permanently blank screen instead of falling back to /login.
+        if (!cancelled) {
+          applySession(undefined);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAuthLoading(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
