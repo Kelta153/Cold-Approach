@@ -88,6 +88,21 @@ async function buildAuth() {
         roles: { admin: adminRole, operator: operatorRole },
       }),
     ],
+    // BetterAuth's own default session-cookie `sameSite` is `"lax"` (verified in its source,
+    // `dist/cookies/index.mjs`) — a `lax` cookie is never sent on a cross-site `fetch`/XHR call,
+    // only on top-level navigations. apps/web talks to apps/api via exactly that kind of call
+    // (`apiFetch`/`authClient`, both `credentials: 'include'`) — once they're on genuinely
+    // different domains (Vercel + Fly.io, not just different localhost ports), `lax` would make
+    // the session cookie silently never arrive on any API request. `SameSite=None` requires
+    // `Secure` per spec (browsers reject the combination otherwise) — gated on `NODE_ENV`
+    // (same convention `resolveAuthSecret` above already uses) rather than hardcoded `true`,
+    // since a `Secure` cookie is dropped by the browser on a plain-HTTP origin and local dev
+    // runs over `http://localhost`. Fly.io must set `NODE_ENV=production` for this to take
+    // effect there — same requirement `resolveAuthSecret` already has.
+    advanced: {
+      defaultCookieAttributes:
+        process.env.NODE_ENV === 'production' ? { sameSite: 'none', secure: true } : { sameSite: 'lax', secure: false },
+    },
   });
 }
 

@@ -1,0 +1,43 @@
+# apps/api on Fly.io. Deploy from the repo root (`fly deploy`) — the Dockerfile at the repo root
+# needs the full monorepo as build context (it runs `turbo prune` internally).
+#
+# Fill in before your first deploy:
+app = "CHANGE-ME"            # your chosen Fly app name (must be globally unique)
+primary_region = "CHANGE-ME" # e.g. "lhr" for London — pick whatever's closest to you/Neon/Upstash
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # Runs once per deploy, before the new version goes live — reuses the same non-interactive-safe
+  # script already used earlier this session (`prisma migrate deploy`, not `migrate dev`).
+  release_command = "pnpm --filter @outreach-engine/db db:migrate:deploy"
+
+[env]
+  PORT = "3001"
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  # This app runs BullMQ workers in-process and receives Telegram webhooks — a scaled-to-zero
+  # machine can't process a queued job or promptly answer a webhook. Must stay always-on, not
+  # Fly's cost-saving default.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    # 30s, not Fly's more aggressive default — HealthController's own circuit breaker already
+    # caps real Redis pings during an outage, but there's no reason to hit this any more often
+    # than that for a low-traffic internal tool.
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"
+    protocol = "http"
+
+# Every env var in .env.example besides PORT/NODE_ENV above needs an explicit
+# `fly secrets set NAME=value` — no .env file ships in the container. See docs/project.md's
+# "Deploying" section for the full list.

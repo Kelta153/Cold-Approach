@@ -22,8 +22,14 @@ async function bootstrap() {
   // registration order, and `toNodeHandler` is a terminal handler that never calls `next()` —
   // if CORS were added afterward (as it originally was here), every /api/auth/* request would
   // complete and return before the CORS middleware ever ran, so the browser would block it.
+  //
+  // `origin` is an explicit allowlist (the same `WEB_APP_URL` env var — comma-split — that
+  // `auth.config.ts`'s `trustedOrigins` already reads), not `true`. `origin: true` reflects back
+  // whatever `Origin` header a request sends and allows it — fine when this only ever ran on
+  // localhost, a real exposed surface (any site can make a credentialed request) once this is
+  // reachable on the public internet.
   app.enableCors({
-    origin: true,
+    origin: (process.env.WEB_APP_URL ?? 'http://localhost:3000').split(','),
     credentials: true,
   });
 

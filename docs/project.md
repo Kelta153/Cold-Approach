@@ -91,7 +91,7 @@ No schema relation links `Lead`/`Draft` back to the `Batch` that produced them �
 
 ## Backend (`apps/api`)
 
-NestJS, TypeScript, CommonJS. Boots on `PORT` (default `3001`). `GET /health` does a real Redis `PING` (2s timeout) against the shared BullMQ connection, not just a `.status` check — a Redis connection can stay `'ready'` while every command is being rejected (e.g. a metered Redis plan's command quota being exhausted), so this is the only way to distinguish "actually working" from "silently broken." Returns `{status: 'ok'|'degraded', redis: {ok, error?}}`.
+NestJS, TypeScript, CommonJS. Boots on `PORT` (default `3001`). `GET /health` does a real Redis `PING` (2s timeout) against the shared BullMQ connection, not just a `.status` check — a Redis connection can stay `'ready'` while every command is being rejected (e.g. a metered Redis plan's command quota being exhausted), so this is the only way to distinguish "actually working" from "silently broken." Returns `{status: 'ok'|'degraded', redis: {ok, error?, stale?}}`. A real ping on every call is fine for `apps/web`'s own 60s polling, but a platform health checker (Fly's) polls far more often — so `HealthController` also runs a capped-exponential-backoff circuit breaker (30s → 5min) once a ping fails: while open, it returns the last known result marked `stale: true` instead of pinging again, and re-checks for real once the backoff window elapses.
 
 Module map:
 
@@ -152,6 +152,18 @@ pnpm turbo dev
 ### Environment variables
 
 See `.env.example` for the full list with inline descriptions. The ones that matter before anything else works: `DATABASE_URL` (Postgres), `REDIS_URL` (Upstash, required — BullMQ connects at module-load time), `BETTER_AUTH_SECRET` (required in production). `GOOGLE_PLACES_API_KEY` powers real discovery batches (`POST /batches`); `GROQ_API_KEY` powers real drafting by default (`LLM_PROVIDER=groq`); `ANTHROPIC_API_KEY` only matters if `LLM_PROVIDER=haiku`. `INSTANTLY_API_KEY` blank means sends persist as real `Send` rows marked `simulated: true` rather than dispatching a real email. `HUNTER_API_KEY` only matters when `ENRICHMENT_FALLBACK=hunter`. `META_APP_*` is unused (Instagram stays manual-send-only by design).
+
+## Deploying (apps/web on Vercel, apps/api on Fly.io)
+
+Both apps were designed to run on the same origin/localhost during development; deploying them to genuinely different domains needs a few things set explicitly, all gated on `NODE_ENV=production`:
+
+- **CORS**: `apps/api`'s `main.ts` allowlists `WEB_APP_URL` (comma-separated) rather than reflecting any origin — set it to the real deployed `apps/web` URL(s).
+- **Cross-origin session cookies**: `auth.config.ts`'s `advanced.defaultCookieAttributes` switches to `{sameSite: 'none', secure: true}` only when `NODE_ENV === 'production'` — BetterAuth's own default (`sameSite: 'lax'`) is never sent on a cross-site `fetch`/XHR call, which is exactly how `apps/web`'s `apiFetch`/`authClient` talk to `apps/api`. Both `WEB_APP_URL` (CORS) and this cookie setting need to agree, or the browser will silently drop the session.
+- **`NEXT_PUBLIC_API_URL`** must be set in Vercel's project settings *before* the first build — Next.js bakes `NEXT_PUBLIC_*` vars in at build time, and the code's `localhost:3001` fallback is correct for local dev but would ship to every visitor's browser if missing at deploy time.
+- **Every `apps/api` env var needs an explicit `fly secrets set`** — no `.env` file ships in a Fly.io container, and `load-env.ts`'s relative `.env` path only resolves in local dev (it silently no-ops, not throws, when the file isn't found — Fly-injected real env vars pass through untouched either way).
+- **Telegram's webhook registration is 100% manual** — nothing in the code calls `setWebhook`. After every deploy (or any time the public URL changes), re-run it by hand against `https://<app>.fly.dev/telegram/webhook`.
+- **`apps/api`'s actual production start command (`node dist/main.js`) was never exercised until this was audited** — every workspace package it depends on (`db`, `types`, `compliance-rules`, `enrichment`, `llm-provider`) had `package.json` `"main"` pointing at TypeScript source rather than compiled `dist/` output, which only "worked" because every dev/test path here (`tsx`, `vitest`) transpiles on the fly. Fixed: all five now point `main`/`types` at `dist/`, and each package's own `tsconfig.json` explicitly sets `module`/`moduleResolution: NodeNext` (matching `apps/api`'s own override) so their compiled output is genuine CommonJS, loadable by plain `node`. Verified by actually booting `NODE_ENV=production node dist/main.js` and hitting `/health` over real HTTP, not just re-running `tsc`.
+- **`Dockerfile`/`.dockerignore`/`fly.toml` exist at the repo root** — `turbo prune @outreach-engine/api --docker` reduces the monorepo to the 6 packages `apps/api` actually needs before `pnpm install`/build, so `apps/web` and its dependencies never enter the image. `fly.toml` sets `auto_stop_machines = "off"`/`min_machines_running = 1` deliberately — this app runs BullMQ workers in-process and receives Telegram webhooks, so it can't be allowed to scale to zero like a typical stateless web app. Fill in `app`/`primary_region` and run `fly secrets set` for every var in `.env.example` before the first `fly deploy`.
 
 ## Testing
 
