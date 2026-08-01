@@ -102,6 +102,19 @@ async function buildAuth() {
     advanced: {
       defaultCookieAttributes:
         process.env.NODE_ENV === 'production' ? { sameSite: 'none', secure: true } : { sameSite: 'lax', secure: false },
+      // BetterAuth's rate limiter keys on the resolved client IP (see
+      // @better-auth/core/src/utils/ip.ts's `getIp`). It only reads `x-forwarded-for` by default,
+      // and — verified in that same source — refuses to trust a *multi-hop* X-Forwarded-For chain
+      // at all unless `trustedProxies` is configured (fails closed, not a guess). Fly's edge
+      // proxy delivers exactly that kind of multi-hop chain, so without this every request fell
+      // back to a single shared rate-limit bucket instead of one per client (the
+      // "could not determine a client IP" warning). `Fly-Client-IP` is Fly's own dedicated,
+      // always-single-value header for this exact problem — simpler and more robust here than
+      // reconstructing Fly's internal proxy CIDR ranges as `trustedProxies`. Harmless off Fly
+      // (falls through to `x-forwarded-for`, e.g. local dev behind a single-hop tunnel).
+      ipAddress: {
+        ipAddressHeaders: ['fly-client-ip', 'x-forwarded-for'],
+      },
     },
   });
 }

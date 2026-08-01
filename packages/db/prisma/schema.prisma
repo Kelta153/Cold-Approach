@@ -123,6 +123,7 @@ model BusinessLine {
   leads               Lead[]
   suppressionEntries  SuppressionEntry[]
   batches             Batch[]
+  automationState     AutomationState?
 
   @@map("business_lines")
 }
@@ -196,6 +197,22 @@ model TargetingProfile {
 
   @@index([businessLineId])
   @@map("targeting_profiles")
+}
+
+// Persisted (survives process restarts — deliberately not in-memory) per-business-line state for
+// the Redis-outage cooldown: 2 consecutive Redis command failures (see
+// apps/api/src/queues/redis-failure-tracker.ts) start a 7-day cooldown that blocks manual batch
+// triggering until an admin clears it. Rows are created lazily via upsert on first access, not
+// backfilled by this model's own migration.
+model AutomationState {
+  id                 String       @id @default(uuid())
+  businessLineId     String       @unique @map("business_line_id")
+  businessLine       BusinessLine @relation(fields: [businessLineId], references: [id])
+  redisFailureCount  Int          @default(0) @map("redis_failure_count")
+  redisCooldownUntil DateTime?    @map("redis_cooldown_until")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+
+  @@map("automation_states")
 }
 
 // ─────────────────────────────────────────────────────────

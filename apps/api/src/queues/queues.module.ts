@@ -10,6 +10,7 @@ import { EnrichmentProcessor } from './enrichment.processor';
 import { QUEUE_NAMES } from './queue-names';
 import { REDIS_CONNECTION } from './redis-connection.token';
 import { logRedisErrorOnce } from './redis-error-logger';
+import { recordRedisFailureAndMaybeStartCooldown } from './redis-failure-tracker';
 
 export { QUEUE_NAMES, REDIS_CONNECTION };
 
@@ -35,7 +36,10 @@ const connection = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6379'
   retryStrategy: (times) => Math.min(1000 * 2 ** times, 30_000),
 });
 
-connection.on('error', (err) => logRedisErrorOnce(redisLogger, err));
+connection.on('error', (err) => {
+  logRedisErrorOnce(redisLogger, err);
+  void recordRedisFailureAndMaybeStartCooldown(err);
+});
 
 const defaultJobOptions = {
   removeOnComplete: { count: 10 },

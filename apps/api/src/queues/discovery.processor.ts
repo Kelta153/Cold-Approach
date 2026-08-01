@@ -7,6 +7,7 @@ import { updateBatchStats } from '../modules/discovery/batch-stats';
 import { QUEUE_NAMES } from './queue-names';
 import type { DiscoveryJobPayload, EnrichmentJobPayload } from './job-payloads';
 import { logRedisErrorOnce } from './redis-error-logger';
+import { recordRedisFailureAndMaybeStartCooldown } from './redis-failure-tracker';
 
 /** Real Google Places-backed discovery. For each place returned by the text search: skip
  * exclusions, dedupe against an existing `Business.googlePlaceId`, skip anything already
@@ -30,6 +31,7 @@ export class DiscoveryProcessor extends WorkerHost {
   @OnWorkerEvent('error')
   onError(err: Error) {
     logRedisErrorOnce(this.logger, err);
+    void recordRedisFailureAndMaybeStartCooldown(err);
   }
 
   async process(job: Job<DiscoveryJobPayload>): Promise<{ leadsCreated: number }> {

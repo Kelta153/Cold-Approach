@@ -32,3 +32,19 @@ export async function getProductOptions(lineId: string): Promise<ProductOption[]
 export async function runBatch(lineId: string, dto: CreateBatchDto): Promise<{ batchId: string }> {
   return apiFetch<{ batchId: string }>('/batches', { method: 'POST', businessLineId: lineId, body: dto });
 }
+
+export interface RedisCooldownStatus {
+  active: boolean;
+  until: string | null;
+}
+
+/** Distinct from /health's redis.ok — this reflects the longer-lived 7-day cooldown that blocks
+ * batch triggering after a sustained outage, which can still be active even after Redis itself
+ * has recovered (only an admin clearing it ends it early). */
+export async function getRedisCooldown(lineId: string): Promise<RedisCooldownStatus> {
+  return apiFetch<RedisCooldownStatus>('/batches/redis-cooldown', { businessLineId: lineId });
+}
+
+export async function clearRedisCooldown(lineId: string): Promise<void> {
+  await apiFetch<void>('/batches/redis-cooldown/clear', { method: 'POST', businessLineId: lineId });
+}

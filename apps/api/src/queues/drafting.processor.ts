@@ -9,6 +9,7 @@ import { TelegramService } from '../modules/notifications/telegram.service';
 import { QUEUE_NAMES } from './queue-names';
 import type { DraftingJobPayload } from './job-payloads';
 import { logRedisErrorOnce } from './redis-error-logger';
+import { recordRedisFailureAndMaybeStartCooldown } from './redis-failure-tracker';
 
 /** Real Claude-backed draft generation. Loads the lead's business, the batch's product, and the
  * business line (for sender identity + compliance footer), calls `DraftingService`, and writes
@@ -30,6 +31,7 @@ export class DraftingProcessor extends WorkerHost {
   @OnWorkerEvent('error')
   onError(err: Error) {
     logRedisErrorOnce(this.logger, err);
+    void recordRedisFailureAndMaybeStartCooldown(err);
   }
 
   async process(job: Job<DraftingJobPayload>): Promise<{ draftId: string }> {

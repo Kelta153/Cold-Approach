@@ -3,11 +3,14 @@
 import { useEffect, useState } from 'react';
 import type { BatchDto } from '@outreach-engine/types';
 import {
+  clearRedisCooldown,
   getBatches,
   getProductOptions,
+  getRedisCooldown,
   getTargetingProfileOptions,
   runBatch,
   type ProductOption,
+  type RedisCooldownStatus,
   type TargetingProfileOption,
 } from '../../../../lib/data/batches';
 import { getHealth, type HealthStatus } from '../../../../lib/data/health';
@@ -29,11 +32,13 @@ const IN_PROGRESS: BatchDto['status'][] = ['discovering', 'enriching', 'drafting
 const HEALTH_POLL_MS = 60_000;
 
 export default function AdminBatchesPage() {
-  const { adminLineId, showToast } = useAppState();
+  const { adminLineId, role, showToast } = useAppState();
   const [rows, setRows] = useState<BatchDto[]>([]);
   const [profiles, setProfiles] = useState<TargetingProfileOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [cooldown, setCooldown] = useState<RedisCooldownStatus | null>(null);
+  const [clearingCooldown, setClearingCooldown] = useState(false);
 
   const [profileId, setProfileId] = useState('');
   const [productId, setProductId] = useState('');
@@ -79,6 +84,30 @@ export default function AdminBatchesPage() {
     return () => clearInterval(timer);
   }, []);
 
+  // Distinct from the health check above: this is the longer-lived 7-day cooldown that blocks
+  // batch triggering after 2 consecutive Redis failures — it can still be active even once Redis
+  // itself has recovered, until an admin clears it.
+  useEffect(() => {
+    if (!adminLineId) return;
+    const check = () => getRedisCooldown(adminLineId).then(setCooldown).catch(() => setCooldown(null));
+    check();
+    const timer = setInterval(check, HEALTH_POLL_MS);
+    return () => clearInterval(timer);
+  }, [adminLineId]);
+
+  const handleClearCooldown = async () => {
+    setClearingCooldown(true);
+    try {
+      await clearRedisCooldown(adminLineId);
+      setCooldown({ active: false, until: null });
+      showToast('Redis cooldown cleared — batches can be triggered again.');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to clear the cooldown.');
+    } finally {
+      setClearingCooldown(false);
+    }
+  };
+
   const handleRun = async () => {
     if (!profileId || !productId || !geography.trim()) {
       showToast('Pick a targeting profile, a product, and a geography.');
@@ -100,6 +129,30 @@ export default function AdminBatchesPage() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="p-[22px] oe:p-7">
+        {cooldown?.active && (
+          <div
+            className="mb-[22px] flex items-start gap-2.5 rounded-md p-[11px_14px]"
+            style={{ background: 'rgba(220,60,60,.08)', border: '1px solid rgba(220,60,60,.35)' }}
+          >
+            <span className="text-[13px] leading-[1.4] text-red">◆</span>
+            <div className="flex-1 text-[12.5px] text-red">
+              <b className="font-semibold text-red">Batch triggering is blocked — sustained Redis outage.</b>
+              <div className="mt-1">
+                Redis failed twice in a row, so triggering is on a 7-day cooldown until {cooldown.until ? new Date(cooldown.until).toLocaleString() : 'unknown'}.
+              </div>
+              {role === 'admin' && (
+                <button
+                  onClick={handleClearCooldown}
+                  disabled={clearingCooldown}
+                  className="mt-2 rounded-control border border-red/40 px-3 py-1.5 text-[12px] font-semibold text-red disabled:opacity-50"
+                >
+                  {clearingCooldown ? 'Clearing…' : "Clear cooldown — I've confirmed Upstash's quota reset"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {health && !health.redis.ok && (
           <div
             className="mb-[22px] flex items-start gap-2.5 rounded-md p-[11px_14px]"
@@ -150,10 +203,10 @@ export default function AdminBatchesPage() {
           <div className="flex items-end">
             <button
               onClick={handleRun}
-              disabled={running || profiles.length === 0 || products.length === 0}
+              disabled={running || profiles.length === 0 || products.length === 0 || Boolean(cooldown?.active)}
               className="w-full rounded-control bg-accent px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50 oe:w-auto"
             >
-              {running ? 'Starting…' : 'Run batch'}
+              {cooldown?.active ? 'Blocked — Redis cooldown' : running ? 'Starting…' : 'Run batch'}
             </button>
           </div>
         </div>

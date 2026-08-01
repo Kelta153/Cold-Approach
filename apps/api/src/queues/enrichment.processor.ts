@@ -8,6 +8,7 @@ import { updateBatchStats } from '../modules/discovery/batch-stats';
 import { QUEUE_NAMES } from './queue-names';
 import type { DraftingJobPayload, EnrichmentJobPayload } from './job-payloads';
 import { logRedisErrorOnce } from './redis-error-logger';
+import { recordRedisFailureAndMaybeStartCooldown } from './redis-failure-tracker';
 
 const VERIFY_TO_EMAIL_STATUS: Record<VerifyStatus, EmailStatus> = {
   valid: 'valid',
@@ -37,6 +38,7 @@ export class EnrichmentProcessor extends WorkerHost {
   @OnWorkerEvent('error')
   onError(err: Error) {
     logRedisErrorOnce(this.logger, err);
+    void recordRedisFailureAndMaybeStartCooldown(err);
   }
 
   async process(job: Job<EnrichmentJobPayload>): Promise<{ email: string | null }> {
