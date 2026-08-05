@@ -157,15 +157,82 @@ See `.env.example` for the full list with inline descriptions. The ones that mat
 
 ## Deploying (apps/web on Vercel, apps/api on Fly.io)
 
+`apps/web` is deployed on Vercel behind a custom domain; `apps/api` is deployed on Fly.io as a single app running the NestJS HTTP server and all three BullMQ workers in-process (it cannot run as a scale-to-zero stateless function — see `fly.toml`'s `min_machines_running`). Both apps share one Postgres (Neon) and one Redis (Upstash) instance — there is no separate "local" database; local dev points at the same real instances as production. The Fly app lives under a Balbus-owned account (an earlier account was a personal trial that hit Fly's trial limits and had to be replaced — the app was recreated fresh under the current account, with every secret re-set explicitly since nothing carries over between Fly accounts/apps automatically).
+
+```mermaid
+flowchart TB
+    subgraph client["Browser"]
+        U["Admin / Operator"]
+    end
+
+    subgraph vercel["Vercel"]
+        WEB["apps/web — Next.js"]
+    end
+
+    subgraph fly["Fly.io"]
+        API["apps/api — NestJS HTTP + BullMQ workers"]
+    end
+
+    subgraph data["Shared data layer"]
+        PG[("Neon Postgres")]
+        REDIS[("Upstash Redis")]
+    end
+
+    subgraph ext["External APIs"]
+        PLACES["Google Places"]
+        LLM["Groq / Claude"]
+        SEND["Instantly (sending)"]
+    end
+
+    subgraph tg["Telegram"]
+        BOT["Bot API"]
+        T1["Linked admin"]
+        T2["Linked operator(s)"]
+    end
+
+    U -->|HTTPS| WEB
+    WEB -->|"fetch, credentials: include"| API
+    API --> PG
+    API --> REDIS
+    API --> PLACES
+    API --> LLM
+    API --> SEND
+    API -->|"outbound: notifyDraftReady"| BOT
+    BOT -->|"inbound webhook: Approve/Reject/Regenerate"| API
+    BOT --> T1
+    BOT --> T2
+```
+
 Both apps were designed to run on the same origin/localhost during development; deploying them to genuinely different domains needs a few things set explicitly, all gated on `NODE_ENV=production`:
 
 - **CORS**: `apps/api`'s `main.ts` allowlists `WEB_APP_URL` (comma-separated) rather than reflecting any origin — set it to the real deployed `apps/web` URL(s).
 - **Cross-origin session cookies**: `auth.config.ts`'s `advanced.defaultCookieAttributes` switches to `{sameSite: 'none', secure: true}` only when `NODE_ENV === 'production'` — BetterAuth's own default (`sameSite: 'lax'`) is never sent on a cross-site `fetch`/XHR call, which is exactly how `apps/web`'s `apiFetch`/`authClient` talk to `apps/api`. Both `WEB_APP_URL` (CORS) and this cookie setting need to agree, or the browser will silently drop the session.
 - **`NEXT_PUBLIC_API_URL`** must be set in Vercel's project settings *before* the first build — Next.js bakes `NEXT_PUBLIC_*` vars in at build time, and the code's `localhost:3001` fallback is correct for local dev but would ship to every visitor's browser if missing at deploy time.
 - **Every `apps/api` env var needs an explicit `fly secrets set`** — no `.env` file ships in a Fly.io container, and `load-env.ts`'s relative `.env` path only resolves in local dev (it silently no-ops, not throws, when the file isn't found — Fly-injected real env vars pass through untouched either way).
-- **Telegram's webhook registration is 100% manual** — nothing in the code calls `setWebhook`. After every deploy (or any time the public URL changes), re-run it by hand against `https://<app>.fly.dev/telegram/webhook`.
+- **Telegram's webhook registration is 100% manual** — nothing in the code calls `setWebhook`. See "Telegram setup" below.
 - **`apps/api`'s actual production start command (`node dist/main.js`) was never exercised until this was audited** — every workspace package it depends on (`db`, `types`, `compliance-rules`, `enrichment`, `llm-provider`) had `package.json` `"main"` pointing at TypeScript source rather than compiled `dist/` output, which only "worked" because every dev/test path here (`tsx`, `vitest`) transpiles on the fly. Fixed: all five now point `main`/`types` at `dist/`, and each package's own `tsconfig.json` explicitly sets `module`/`moduleResolution: NodeNext` (matching `apps/api`'s own override) so their compiled output is genuine CommonJS, loadable by plain `node`. Verified by actually booting `NODE_ENV=production node dist/main.js` and hitting `/health` over real HTTP, not just re-running `tsc`.
 - **`Dockerfile`/`.dockerignore`/`fly.toml` exist at the repo root** — `turbo prune @outreach-engine/api --docker` reduces the monorepo to the 6 packages `apps/api` actually needs before `pnpm install`/build, so `apps/web` and its dependencies never enter the image. `fly.toml` sets `auto_stop_machines = "off"`/`min_machines_running = 1` deliberately — this app runs BullMQ workers in-process and receives Telegram webhooks, so it can't be allowed to scale to zero like a typical stateless web app. Fill in `app`/`primary_region` and run `fly secrets set` for every var in `.env.example` before the first `fly deploy`.
+
+### Telegram setup
+
+The bot has exactly one webhook URL registered at a time (`https://cold-approach.fly.dev/telegram/webhook`), pointed there via Telegram's `setWebhook` call — nothing in the code does this automatically, it's a one-off manual `curl` against Telegram's Bot API whenever the app's URL changes (a redeploy to a new app/account, for example).
+
+```mermaid
+flowchart LR
+    A["Admin/operator sends<br/>any message to the bot"] --> B{"Webhook<br/>registered?"}
+    B -->|yes| C["Delivered to apps/api's<br/>/telegram/webhook — but the<br/>sender's numeric id isn't logged<br/>for a plain message"]
+    B -->|no, deleteWebhook first| D["getUpdates long-poll picks up<br/>the message, including the<br/>sender's real numeric Telegram id"]
+    D --> E["Write that id onto the<br/>matching User.telegramUserId"]
+    E --> F["setWebhook restores delivery"]
+    F --> G["notifyDraftReady now broadcasts<br/>to every admin/operator with a<br/>linked telegramUserId"]
+```
+
+**Linking a new teammate's account** (there's no self-service UI for this — it's a real gap, not an oversight):
+1. Have them message the bot directly (any text).
+2. Since webhook delivery and `getUpdates` long-polling are mutually exclusive, temporarily `deleteWebhook`, poll `getUpdates` to capture their message's real numeric `from.id`, then `setWebhook` again to restore normal delivery. A message sent *before* the webhook was deleted won't reappear in `getUpdates` — Telegram only replays undelivered updates, so ask them to send a fresh message after the webhook is down.
+3. Write that numeric id onto their `User.telegramUserId` — nothing in the running app does this for you.
+
+Once linked, `notifyDraftReady` broadcasts every new draft to *every* admin/operator with a linked `telegramUserId` — there's no per-business-line or per-role targeting (see Guardrail-adjacent note in the module table above), so linking a new account immediately puts them in the broadcast group for everyone's drafts.
 
 ## Testing
 
